@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Glimpses Editor</title>
+<link rel="stylesheet" href="editor.css">
+<script src="sheet_link.js"></script>
+<script src="art_data.js"></script>
+<script src="render.js"></script>
+<script src="editor.js"></script>
+</head>
+<body>
+<header id="top">
+  <div class="brand">GLIMPSES <span>editor</span></div>
+  <nav id="tabs"></nav>
+  <div id="hud">
+    <span id="conn">Not linked</span>
+    <button class="btn" id="reload" title="Load everything fresh from the sheet (unsaved changes are kept)">⟳ Reload</button>
+    <button class="btn primary" id="saveAll" title="Changes save by themselves a moment after you stop typing (Ctrl+S saves now)" disabled>All saved ✓</button>
+    <button class="btn icon" id="settings" title="Link to the sheet">⚙</button>
+  </div>
+</header>
+<main>
+  <aside id="catalogue">
+    <div class="cat-head">
+      <input id="search" type="text" placeholder="Search…  (Ctrl+F)" autocomplete="off">
+      <button class="btn" id="newItem" title="Make a new one">+ New</button>
+    </div>
+    <div id="filters"></div>
+    <div id="list"></div>
+  </aside>
+  <section id="form"></section>
+  <section id="preview">
+    <div class="pv-label" id="pvLabel">Preview<span><button class="btn small" id="zoomOut" title="Smaller">−</button> <button class="btn small" id="zoomIn" title="Bigger">+</button></span></div>
+    <div id="stage"></div>
+  </section>
+</main>
+<div id="toast"></div>
+<dialog id="setup">
+  <h3>Link the Glimpses Database sheet</h3>
+  <ol>
+    <li>The link is filled in already. Paste the <b>key</b> (Reigan has it) and press <b>Link</b>.</li>
+    <li>Your browser remembers it, so this is only needed once.</li>
+  </ol>
+  <div class="f"><label>Link</label><input type="text" id="setUrl" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off"></div>
+  <div class="f"><label>Key</label><input type="text" id="setKey" autocomplete="off"></div>
+  <div class="msg" id="setMsg"></div>
+  <div class="actions"><button class="btn" id="setClose">Close</button><button class="btn primary" id="setTest">Link</button></div>
+</dialog>
+</body>
+</html>
