@@ -113,10 +113,15 @@ function setVal(ref, key, value) {
   if (!rec) return;
   const h = HR(rec, key) || key;   // (a column the sheet doesn't have yet: made when it's saved)
   if (!S.drafts[ref]) S.drafts[ref] = { tab: rec.tab, row: rec.row, isNew: false, orig: { ...rec.orig }, cur: { ...rec.orig } };
-  S.drafts[ref].cur[h] = value;
-  if (!S.drafts[ref].isNew && changedHeaders(record(ref)).length === 0) delete S.drafts[ref];
+  const d = S.drafts[ref], sh = H(rec.tab, 'status');
+  d.cur[h] = value;
+  if (sh && h === sh) d.statusPicked = true;   // picked by hand: kept as it is
+  // any other change marks it "Update" straight away (Idea and Delete keep theirs), as saving would
+  else if (sh && !d.statusPicked && !/^(idea|delete)$/i.test(String(d.orig[sh] ?? ''))) d.cur[sh] = 'Update';
+  if (!d.isNew && changedHeaders(record(ref)).filter(x => x !== sh || d.statusPicked).length === 0) delete S.drafts[ref];
   saveStore();
   afterChange(ref, key);
+  if (_statusRedraw && ref === real(S.sel[rec.tab])) _statusRedraw();
   scheduleAutoSave();
 }
 
@@ -845,9 +850,11 @@ function statusField(rec, used) {
     }
   };
   draw();
+  _statusRedraw = draw;   // (a change elsewhere in the form can turn it to "Update")
   f.appendChild(row);
   return f;
 }
+let _statusRedraw = null;
 
 /** Glimpses' memories as a datalist (for typing names). */
 function ensureDatalist(id, values) {
