@@ -901,9 +901,9 @@ function memoryForm(form, rec, used) {
   more.appendChild(r2);
   more.appendChild(textField(rec, 'mechanical clarification', 'Mechanical clarification', { area: true, hint: '(shown when you right-click it)' }, used));
 
-  // filled in by Claude when bringing it into the game
+  // filled in when it's brought into the game
   const other = otherInfo(form);
-  other.appendChild(textField(rec, 'id', 'Id', { hint: '(Claude fills this in)' }, used));
+  other.appendChild(textField(rec, 'id', 'Id', {}, used));
   other.appendChild(tagsField(rec, used));
   other.appendChild(textField(rec, 'artwork', 'Artwork notes', {}, used));
 }
@@ -912,7 +912,7 @@ function memoryForm(form, rec, used) {
 function otherInfo(form) {
   let fs = form.querySelector('.other-info fieldset');
   if (!fs) {
-    fs = fieldset(form, 'Other info (Claude fills most of this in)', true);
+    fs = fieldset(form, 'Other info', true);
     fs.parentElement.classList.add('other-info');
   }
   return fs;
@@ -1043,13 +1043,13 @@ function glimpseForm(form, rec, used) {
 
   const what = fieldset(form, 'What it does');
   what.appendChild(textField(rec, 'what it does', 'What it does', { create: true, area: true, rows: 5,
-    placeholder: 'Explain what happens when you pick it, mechanically. Claude turns this into the game\'s short text and its effects.' }, used));
+    placeholder: 'Explain what happens when you pick it, mechanically.' }, used));
   if (!val(rec, 'what it does').trim() && val(rec, 'text').trim()) {
     const now = el('div', 'reads'); now.innerHTML = `<b>The game says now:</b> ${esc(val(rec, 'text'))}`; what.appendChild(now);
   }
 
   const other = otherInfo(form);
-  other.appendChild(textField(rec, 'id', 'Id', { hint: '(Claude fills this in)' }, used));
+  other.appendChild(textField(rec, 'id', 'Id', {}, used));
   other.appendChild(selectField(rec, 'kind', 'Kind', [['effects', 'effects (an event)'], ['memory', 'memory (a new memory)'], ['encounter', 'encounter (a fight)']], used, { onchange: () => renderPreview() }));
   other.appendChild(textField(rec, 'text', 'In-game text', { area: true, rows: 2 }, used));
   other.appendChild(checkField(rec, 'player picks a memory', 'The player picks a memory for it (a “tamper”)', used));
@@ -1199,7 +1199,7 @@ function encounterForm(form, rec, used) {
 
       // what it does
       const ab = el('div', 'f');
-      ab.innerHTML = '<label>What it does <span class="hint">(its passives and anything special; Claude writes the game\'s version)</span></label>';
+      ab.innerHTML = '<label>What it does <span class="hint">(its passives and anything special)</span></label>';
       const ta = el('textarea'); ta.rows = 3; ta.value = e.about;
       ta.oninput = () => { e.about = ta.value; write(); };
       ab.appendChild(ta);
@@ -1254,7 +1254,7 @@ function encounterForm(form, rec, used) {
   draw();
 
   const other = otherInfo(form);
-  other.appendChild(textField(rec, 'id', 'Id', { hint: '(Claude fills this in)' }, used));
+  other.appendChild(textField(rec, 'id', 'Id', {}, used));
   other.appendChild(checkField(rec, 'boss', 'Boss', used));
   const r2 = el('div', 'row');
   r2.appendChild(textField(rec, 'music', 'Music', {}, used));
@@ -1347,7 +1347,7 @@ function openRequirements(ref) {
   if (d) d.remove();
   d = el('dialog'); d.id = 'reqDialog';
   d.innerHTML = `<h3>Requirements</h3><p class="dim">When this can turn up. <b>Only if</b>: you'll only see it when this is true.
-    <b>Never if</b>: you won't see it once this is true. Write them however you like; Claude makes the game check them.</p>`;
+    <b>Never if</b>: you won't see it once this is true. Write them however you like.</p>`;
   const rows = el('div', 'req-rows');
   const save = () => setVal(real(ref), 'requirements', writeRequirements(list));
   const draw = () => {
