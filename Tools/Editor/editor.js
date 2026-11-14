@@ -232,7 +232,19 @@ function memoryModel(rec) {
   let dice = 0;
   for (const d of diceRaw.split(/[,; ]+/).filter(Boolean)) dice += /^d/i.test(d) ? 1 : Math.min(6, Number(d) || 0);
   const align = tiles.some(t => t.parsed.kw && /^all?ign$/i.test(t.parsed.kw.id));
-  return { id, name, attributes, runes, tiles, dice, pattern: align ? ['this', '1', 'eq', '2'] : null };
+  return { id, name, attributes, runes, tiles, dice, pattern: align ? examplePattern(name) : null };
+}
+
+/** An Align pattern rolled the way the game rolls one: 4 of 0–4 or =, and a lone = becomes the arrow ("this").
+ *  (Seeded by the name, so the example stays put while you edit.) */
+function examplePattern(name) {
+  let h = 2166136261;
+  for (const c of String(name)) h = Math.imul(h ^ c.charCodeAt(0), 16777619) >>> 0;
+  const next = () => { h = (Math.imul(h, 1664525) + 1013904223) >>> 0; return h / 4294967296; };
+  const vals = ['0', '1', '2', '3', '4', 'eq'];
+  const p = [0, 1, 2, 3].map(() => vals[Math.floor(next() * vals.length)]);
+  if (p.filter(v => v === 'eq').length === 1) p[p.indexOf('eq')] = 'this';
+  return p;
 }
 
 /** A memory's runes, from however many Rune columns it has (each may hold a comma list). */
@@ -1443,7 +1455,7 @@ function previewMemory(stage, rec) {
   if (!m.id) bits.push('<p>Not in the game yet (no picture until it\'s brought in and given art).</p>');
   for (const r of m.runes) bits.push(`<div class="glos"><img class="ico" src="${R.artUrl(r.icon)}" style="width:20px;height:20px"> <b>${esc(r.title)}</b> — ${esc(r.text)}${r.missing ? ' <span class="warnline">(no rune with this name)</span>' : ''}</div>`);
   if (m.dice) bits.push(`<div class="glos"><img class="ico" src="${R.artUrl('die_6.png')}" style="width:20px;height:20px"> <b>Dice</b> — comes with ${m.dice} die${m.dice > 1 ? 'ce' : ''}.</div>`);
-  if (m.pattern) bits.push('<div class="glos"><b>Align</b> — the 4 tiles along the bottom are rolled each run; these are an example.</div>');
+  if (m.pattern) bits.push('<div class="glos"><b>Align</b> — the 4 tiles along the bottom roll at random (each 0–4 or =, and a single = becomes the arrow), and roll again each time the pattern is made. These are an example.</div>');
   const cl = val(rec, 'mechanical clarification');
   if (cl) bits.push(`<h4>Clarification</h4><p>${esc(cl).replace(/\n/g, '<br>')}</p>`);
   const tags = val(rec, 'tags');
