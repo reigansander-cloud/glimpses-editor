@@ -40,7 +40,7 @@ function glyphChoices() {
   out.push('leaf');
   return out.sort();
 }
-// fading became fortitude: ico_fading.png / bar_fading.png are its purple eye and bar
+// fading became fortitude: ico_fading.png / bar_fading.png are its blue eye and bar
 const iconFile = name => (['bone', 'bones', 'ember', 'embers'].includes(name) ? 'ico_doom.png' : name === 'sight' ? 'sight.png' : `ico_${name === 'fortitude' ? 'fading' : name}.png`);
 
 const STAT_WORDS = /\b(aggression|agression|fading|fortitude|vanity|stones?|embers?|threads?|bones?|charm|grit|insight|guile|sights?)\b/gi;
@@ -116,7 +116,7 @@ function slicedLayer(s, w, h, extraStyle) {
 
 function statBar(stat, have, need, w, h) {
   stat = String(stat).toLowerCase().replace('agression', 'aggression');
-  if (stat === 'fortitude') stat = 'fading';   // (its purple bar)
+  if (stat === 'fortitude') stat = 'fading';   // (its blue bar)
   const SrcW = 1085, SrcH = 250, LeftEnd = 120, MidFrom = 525, MidTo = 825, RightFrom = 840, CircleX = 970;
   const full = has(`bar_${stat}.png`) ? `bar_${stat}.png` : 'bar_aggression.png';
   const k = h / SrcH, lw = LeftEnd * k, rw = (SrcW - RightFrom) * k, mw = Math.max(0, w - lw - rw);
