@@ -13,7 +13,7 @@
  *      Saving sets the row's Status to "Update" (Idea and Delete rows keep theirs) unless status is given.
  */
 
-var EDITOR_TABS = ['Memories', 'Glimpses', 'Encounters', 'Keywords', 'Runes', 'Abilities'];
+var EDITOR_TABS = ['Memories', 'Glimpses', 'Encounters', 'Keywords', 'Runes', 'Masks', 'Abilities'];
 
 function editorKey_() {
   var props = PropertiesService.getScriptProperties();
@@ -108,6 +108,7 @@ function doPost(e) {
 function editorApply_(ss, edit) {
   if (EDITOR_TABS.indexOf(edit.tab) < 0) throw new Error('The editor can only change ' + EDITOR_TABS.join(', ') + '.');
   var sh = ss.getSheetByName(edit.tab);
+  if (!sh && edit.headers && edit.headers.length) sh = editorNewTab_(ss, edit.tab, edit.headers);   // (the Masks tab, the first time)
   if (!sh) throw new Error('There is no ' + edit.tab + ' tab.');
   var lastCol = sh.getLastColumn();
   var headers = sh.getRange(1, 1, 1, lastCol).getDisplayValues()[0];
@@ -190,4 +191,20 @@ function editorAddColumn_(sh, header) {
   }
   sh.getRange(1, at).setValue(header);
   return at;
+}
+
+/** A new content tab, laid out like the others: a bold header row (styled like Memories'), frozen, with a Status dropdown. */
+function editorNewTab_(ss, name, headers) {
+  var sh = ss.insertSheet(name);
+  sh.getRange(1, 1, 1, headers.length).setValues([headers]);
+  var like = ss.getSheetByName('Memories');
+  if (like) like.getRange(1, 1, 1, 1).copyTo(sh.getRange(1, 1, 1, headers.length), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
+  else sh.getRange(1, 1, 1, headers.length).setFontWeight('bold');
+  sh.setFrozenRows(1);
+  var statusCol = headers.indexOf('status') + 1;
+  if (statusCol > 0) {
+    var rule = SpreadsheetApp.newDataValidation().requireValueInList(['Good', 'Update', 'Delete', 'Idea'], true).setAllowInvalid(true).build();
+    sh.getRange(2, statusCol, sh.getMaxRows() - 1, 1).setDataValidation(rule);
+  }
+  return sh;
 }
