@@ -77,7 +77,25 @@ function record(ref) {
   const o = rowObj(tab, r.cells);
   return { ref, tab, row: r.row, isNew: false, orig: o, cur: o };
 }
-const val = (rec, key) => { const h = H(rec.tab, key); return h ? String(rec.cur[h] ?? '') : ''; };
+/** The column for a name: the tab's own, or one only this item has so far (a new "Rune 3" the sheet gets on saving). */
+const HR = (rec, key) => H(rec.tab, key) || Object.keys(rec.cur).find(k => k.toLowerCase() === key.toLowerCase()) || null;
+const val = (rec, key) => { const h = HR(rec, key); return h ? String(rec.cur[h] ?? '') : ''; };
+/** "Rune 1", "Rune 2"... (or "Ability Tile 1"...): this item's numbered columns, in order. */
+function numbered(rec, stem) {
+  const re = new RegExp('^' + stem + ' (\\d+)$', 'i');
+  const hs = new Set([...tabData(rec.tab).headers, ...Object.keys(rec.cur)].filter(h => re.test(h.trim())));
+  return [...hs].sort((a, b) => Number(a.trim().match(re)[1]) - Number(b.trim().match(re)[1]));
+}
+/** Writes a list into numbered columns (Rune 1, Rune 2, ...): new columns are made when saved, extra ones emptied. */
+function setNumbered(ref, stem, label, list) {
+  const rec = record(real(ref));
+  const cols = numbered(rec, stem);
+  const n = Math.max(cols.length, list.length);
+  for (let i = 0; i < n; i++) {
+    const h = cols.find(c => Number(c.trim().split(' ').pop()) === i + 1) || `${label} ${i + 1}`;
+    if (String(record(real(ref)).cur[h] ?? '') !== String(list[i] ?? '')) setVal(ref, h, list[i] ?? '');
+  }
+}
 const origVal = (rec, key) => { const h = H(rec.tab, key); return h ? String(rec.orig[h] ?? '') : ''; };
 function changedHeaders(rec) {
   if (!rec) return [];
@@ -90,8 +108,7 @@ function setVal(ref, key, value) {
   ref = real(ref);
   const rec = record(ref);
   if (!rec) return;
-  const h = H(rec.tab, key);
-  if (!h) return;
+  const h = HR(rec, key) || key;   // (a column the sheet doesn't have yet: made when it's saved)
   if (!S.drafts[ref]) S.drafts[ref] = { tab: rec.tab, row: rec.row, isNew: false, orig: { ...rec.orig }, cur: { ...rec.orig } };
   S.drafts[ref].cur[h] = value;
   if (!S.drafts[ref].isNew && changedHeaders(record(ref)).length === 0) delete S.drafts[ref];
@@ -113,7 +130,7 @@ function runeRows() {
   }));
 }
 const plain = s => String(s || '').replace(/^[^A-Za-z0-9]+/, '').split(':')[0].trim();
-const squash = s => String(s || '').toLowerCase().replace(/agression/g, 'aggression').replace(/\s+/g, '');
+const squash = s => String(s || '').toLowerCase().replace(/agression/g, 'aggression').replace(/fading/g, 'fortitude').replace(/\s+/g, '');
 function findRune(label) {
   const name = plain(label);
   if (!name) return null;
@@ -122,6 +139,7 @@ function findRune(label) {
 function stirWord(name) {
   let w = String(name).toLowerCase().replace(/^stir/, '').trim();
   if (w.startsWith('ag')) w = 'aggression';
+  if (w === 'fading') w = 'fortitude';   // fading became fortitude
   return w;
 }
 function runeIcon(rune) {
@@ -204,20 +222,22 @@ function memoryModel(rec) {
   const attributes = {};
   for (const a of ['charm', 'grit', 'insight', 'guile']) attributes[a] = Number(val(rec, a)) || 0;
   const runes = [];
-  for (const c of ['rune 1', 'rune 2', 'rune 3']) {
-    const v = val(rec, c);
-    if (!v.trim()) continue;
+  for (const v of runeList(rec)) {
     const r = findRune(v);
     runes.push({ icon: runeIcon(r), title: r ? r.name : plain(v), text: r ? r.text : "(not on the Runes tab)", missing: !r });
   }
   const tiles = [];
-  for (const c of ['ability tile 1', 'ability tile 2', 'ability tile 3']) { const t = tileView(val(rec, c)); if (t) tiles.push(t); }
+  for (const text of tileList(rec)) { const t = tileView(text); if (t) tiles.push(t); }
   const diceRaw = val(rec, 'dice').trim();
   let dice = 0;
   for (const d of diceRaw.split(/[,; ]+/).filter(Boolean)) dice += /^d/i.test(d) ? 1 : Math.min(6, Number(d) || 0);
   const align = tiles.some(t => t.parsed.kw && /^all?ign$/i.test(t.parsed.kw.id));
   return { id, name, attributes, runes, tiles, dice, pattern: align ? ['this', '1', 'eq', '2'] : null };
 }
+
+/** A memory's runes, from however many Rune columns it has (each may hold a comma list). */
+const runeList = rec => numbered(rec, 'rune').flatMap(h => String(rec.cur[h] ?? '').split(',')).map(x => x.trim()).filter(Boolean);
+const tileList = rec => numbered(rec, 'ability tile').map(h => String(rec.cur[h] ?? '').trim()).filter(Boolean);
 
 function glimpseModel(rec) {
   const kind = val(rec, 'kind').toLowerCase() || 'effects';
@@ -230,7 +250,8 @@ function glimpseModel(rec) {
   const label = kind === 'encounter' ? 'FIGHT' : kind === 'memory' ? 'NEW MEMORY' : picks ? 'TAMPER' : 'EVENT';
   const hint = kind === 'memory' ? 'Hover to see it, right-click to look closely. Drag it into a gap in the ring, or click then pick a gap.'
     : picks ? 'Drag it onto a memory, or click then pick one.' : 'Click to choose.';
-  return { color, kind: label, title: val(rec, 'title'), text: kind === 'memory' ? '' : text, hint };
+  const info = val(rec, 'info line').trim();
+  return { color, kind: info ? info.toUpperCase() : label, title: val(rec, 'title'), text: kind === 'memory' ? '' : text, hint };
 }
 
 /** "Hollow Pilgrim: 12 aggression; Lantern Moth (each): 6 aggression" → the part for one enemy. */
@@ -247,7 +268,7 @@ function partFor(text, name, single) {
 /** The first of these columns the tab has. */
 const val2 = (rec, keys) => { for (const k of keys) if (H(rec.tab, k)) return val(rec, k); return ''; };
 function encounterModel(rec) {
-  if (H(rec.tab, 'intents')) return encounterModel2(rec);
+  if (H(rec.tab, 'intents') || !H(rec.tab, 'components')) return encounterModel2(rec);
   const comps = (val(rec, 'components') || val(rec, 'name')).split(/,\s*/).map(s => s.trim()).filter(Boolean).map(s => {
     const m = s.match(/^(\d+)\s*[×x]\s*(.+)$/i);
     return { count: m ? Number(m[1]) : 1, name: m ? m[2].trim() : s };
@@ -388,6 +409,7 @@ async function save(refs, auto) {
       if (!r.ok) { failed.push(r.error); continue; }
       ok++;
       const d = S.drafts[r.ref], tab = r.tab, rows = tabData(tab).rows;
+      if (r.headers) { tabData(tab).headers = r.headers; moved = true; }   // a column was added: reload so every row lines up
       const i = rows.findIndex(x => x.row === r.row);
       if (i >= 0) rows[i] = { row: r.row, cells: r.cells }; else rows.push({ row: r.row, cells: r.cells });
       rows.sort((a, b) => a.row - b.row);
@@ -629,6 +651,14 @@ function renderForm() {
     const sv = el('button', 'btn primary small'); sv.textContent = rec.isNew ? 'Save to sheet' : 'Save this'; sv.onclick = () => save([ref]); head.appendChild(sv);
     const rv = el('button', 'btn small'); rv.textContent = rec.isNew ? 'Discard' : 'Undo changes'; rv.onclick = () => revert(ref); head.appendChild(rv);
   }
+  if (['Memories', 'Glimpses', 'Encounters'].includes(rec.tab)) {
+    const n = parseRequirements(val(rec, 'requirements')).length;
+    const rq = el('button', 'btn small req' + (n ? ' has' : ''));
+    rq.textContent = n ? `Requirements (${n})` : 'Requirements';
+    rq.title = 'When this can turn up (and when it never will)';
+    rq.onclick = () => openRequirements(ref);
+    head.appendChild(rq);
+  }
   const dup = el('button', 'btn small'); dup.textContent = 'Duplicate'; dup.title = 'Start a new one from a copy of this'; dup.onclick = () => newItem(rec); head.appendChild(dup);
   form.appendChild(head);
   const where = el('div', 'where');
@@ -639,11 +669,12 @@ function renderForm() {
   const builders = { Memories: memoryForm, Glimpses: glimpseForm, Encounters: encounterForm, Keywords: keywordForm, Runes: runeForm };
   const used = new Set();
   builders[rec.tab](form, rec, used);
+  const rqh = HR(rec, 'requirements'); if (rqh) used.add(rqh);   // (the Requirements button)
   // any other columns on the tab
   const statusH = H(rec.tab, 'status');
   const rest = tabData(rec.tab).headers.filter(h => h !== '' && !used.has(h) && h !== statusH);
   if (rest.length) {
-    const fs = fieldset(form, 'Other columns', true);
+    const fs = otherInfo(form);
     for (const h of rest) fs.appendChild(textField(rec, h, h, { area: String(rec.cur[h] || '').length > 50 }, used));
   }
 }
@@ -679,10 +710,10 @@ const isChanged = (rec, h) => h && String(rec.cur[h] ?? '') !== String(rec.orig[
 /** A labelled text box (or textarea) bound to a column. key = the column's name (or its real header). */
 function textField(rec, key, label, opt, used) {
   opt = opt || {};
-  const h = H(rec.tab, key) || key;
+  const h = HR(rec, key) || key;
   used && used.add(h);
   const f = el('div', 'f' + (isChanged(rec, h) ? ' changed' : ''));
-  if (!tabData(rec.tab).headers.includes(h)) { f.style.display = 'none'; return f; }
+  if (!opt.create && !tabData(rec.tab).headers.includes(h) && !(h in rec.cur)) { f.style.display = 'none'; return f; }
   f.innerHTML = `<label>${esc(label)}${opt.hint ? ` <span class="hint">${esc(opt.hint)}</span>` : ''}</label>`;
   const inp = opt.area ? el('textarea', opt.code ? 'code' : '') : el('input', opt.big ? 'big' : '');
   if (!opt.area) inp.type = opt.number ? 'number' : 'text';
@@ -763,8 +794,10 @@ function memoryForm(form, rec, used) {
   top.appendChild(textField(rec, 'name', 'Name', { big: true }, used));
   top.appendChild(statusField(rec, used));
 
+  // stats down the left, runes down the right (as many as you like)
   const at = fieldset(form, 'Attributes & runes');
-  const grid = el('div', 'attrs');
+  const cols = el('div', 'two-col');
+  const stats = el('div', 'statcol');
   for (const a of ['charm', 'grit', 'insight', 'guile']) {
     const h = H(rec.tab, a);
     if (!h) continue;
@@ -774,40 +807,91 @@ function memoryForm(form, rec, used) {
     const minus = el('button'); minus.textContent = '−';
     const plus = el('button'); plus.textContent = '+';
     const v = el('div', 'v');
+    const nm = el('div', 'name'); nm.textContent = box.title;
     const draw = () => { const n = Number((record(rec.ref) || rec).cur[h]) || 0; v.textContent = n || '–'; box.classList.toggle('set', n > 0); };
     const bump = d => { const n = Math.max(0, Math.min(9, (Number((record(rec.ref) || rec).cur[h]) || 0) + d)); setVal(rec.ref, h, n ? String(n) : ''); draw(); };
     minus.onclick = () => bump(-1); plus.onclick = () => bump(1);
-    box.append(img(`ico_${a}.png`), minus, v, plus);
+    box.append(img(`ico_${a}.png`), nm, minus, v, plus);
     draw();
-    grid.appendChild(box);
+    stats.appendChild(box);
   }
-  at.appendChild(grid);
+  const runesCol = el('div', 'runecol');
+  runesCol.innerHTML = '<div class="lbl">Runes</div>';
+  const runeBox = el('div');
+  runesCol.appendChild(runeBox);
+  numbered(rec, 'rune').forEach(h => used.add(h));
   const runeLabels = (S.data.lists && S.data.lists.runes && S.data.lists.runes.length ? S.data.lists.runes : runeRows().map(r => r.name));
-  const rr = el('div', 'row');
-  rr.style.marginTop = '10px';
-  for (const c of ['rune 1', 'rune 2', 'rune 3']) {
-    const h = H(rec.tab, c);
-    if (!h) continue;
-    const f = selectField(rec, c, c[0].toUpperCase() + c.slice(1), [['', '— none —'], ...runeLabels], used);
-    const sel = f.querySelector('select');
+  const drawRunes = (focusLast) => {
+    const cur = record(rec.ref) || rec;
+    const list = runeList(cur);
+    const shown = list.length ? [...list] : [''];
+    runeBox.innerHTML = '';
+    shown.forEach((value, i) => {
+      const row = el('div', 'pickrow listrow');
+      const icon = el('div', 'pickicon');
+      const sel = el('select');
+      const opts = [['', '— pick a rune —'], ...runeLabels.map(x => [x, x])];
+      if (value && !runeLabels.includes(value)) opts.push([value, value + '  (not a listed choice)']);
+      for (const [v, t] of opts) { const o = el('option'); o.value = v; o.textContent = t; sel.appendChild(o); }
+      sel.value = value;
+      const drawIcon = () => { icon.innerHTML = ''; if (sel.value) { const r = findRune(sel.value); icon.appendChild(img(runeIcon(r))); icon.title = r ? r.name + ': ' + r.text : 'not on the Runes tab'; } };
+      drawIcon();
+      sel.onchange = () => {
+        const now = runeList(record(rec.ref) || rec);
+        if (i < now.length) now[i] = sel.value; else now.push(sel.value);
+        setNumbered(rec.ref, 'rune', 'Rune', now.filter(Boolean));
+        drawIcon();
+        if (!sel.value) drawRunes();
+      };
+      const x = el('button', 'xbtn'); x.textContent = '×'; x.title = 'Remove this rune';
+      x.onclick = () => { const now = runeList(record(rec.ref) || rec); now.splice(i, 1); setNumbered(rec.ref, 'rune', 'Rune', now); drawRunes(); };
+      row.append(icon, sel, x);
+      runeBox.appendChild(row);
+      if (focusLast && i === shown.length - 1) setTimeout(() => sel.focus(), 0);
+    });
+  };
+  drawRunes();
+  const addRune = el('button', 'btn small addbtn'); addRune.textContent = '+ Add rune';
+  addRune.onclick = () => {
+    const list = runeList(record(rec.ref) || rec);
+    if (!list.length) { toast('Pick the first rune, then add another.'); return; }
+    // a blank row to pick in (saved once something's picked)
+    drawRunes();
+    const row = el('div', 'pickrow listrow');
     const icon = el('div', 'pickicon');
-    const draw = () => { icon.innerHTML = ''; if (sel.value) { const r = findRune(sel.value); icon.appendChild(img(runeIcon(r))); icon.title = r ? r.name + ': ' + r.text : 'not on the Runes tab'; } };
-    sel.addEventListener('change', draw);
-    const wrap = el('div', 'pickrow');
-    sel.replaceWith(wrap);
-    wrap.append(icon, sel);
-    draw();
-    rr.appendChild(f);
-  }
-  at.appendChild(rr);
+    const sel = el('select');
+    for (const [v, t] of [['', '— pick a rune —'], ...runeLabels.map(x => [x, x])]) { const o = el('option'); o.value = v; o.textContent = t; sel.appendChild(o); }
+    sel.onchange = () => { if (!sel.value) return; setNumbered(rec.ref, 'rune', 'Rune', [...runeList(record(rec.ref) || rec), sel.value]); drawRunes(); };
+    const x = el('button', 'xbtn'); x.textContent = '×'; x.onclick = () => row.remove();
+    row.append(icon, sel, x);
+    runeBox.appendChild(row);
+    sel.focus();
+  };
+  runesCol.appendChild(addRune);
+  cols.append(stats, runesCol);
+  at.appendChild(cols);
 
+  // ability tiles: one to start, add as many as you like
   const ab = fieldset(form, 'Ability tiles');
-  for (const c of ['ability tile 1', 'ability tile 2', 'ability tile 3']) {
-    const h = H(rec.tab, c);
-    if (!h) continue;
-    used.add(h);
-    ab.appendChild(tileEditor(rec, h, c[0].toUpperCase() + c.slice(1)));
+  const tileCols = numbered(rec, 'ability tile');
+  tileCols.forEach(h => used.add(h));
+  const texts = tileCols.map(h => String(rec.cur[h] ?? ''));
+  while (texts.length && !texts[texts.length - 1].trim()) texts.pop();
+  const showN = Math.max(1, texts.length, S.extraTiles && S.extraTiles.ref === rec.ref ? S.extraTiles.n : 0);
+  for (let i = 0; i < showN; i++) {
+    const h = tileCols.find(c => Number(c.trim().split(' ').pop()) === i + 1) || `Ability Tile ${i + 1}`;
+    ab.appendChild(tileEditor(rec, h, `Ability ${i + 1}`, showN > 1 ? () => {
+      const list = numbered(record(rec.ref) || rec, 'ability tile').map(c => String((record(rec.ref) || rec).cur[c] ?? ''));
+      list.splice(i, 1);
+      while (list.length && !list[list.length - 1].trim()) list.pop();
+      if (S.extraTiles && S.extraTiles.ref === rec.ref) S.extraTiles.n = Math.max(0, S.extraTiles.n - 1);
+      setNumbered(rec.ref, 'ability tile', 'Ability Tile', list);
+      renderForm();
+    } : null));
   }
+  const addTile = el('button', 'btn small addbtn'); addTile.textContent = '+ Add ability';
+  addTile.onclick = () => { S.extraTiles = { ref: rec.ref, n: showN + 1 }; renderForm(); const t = [...document.querySelectorAll('.tile-ed textarea')].pop(); if (t) t.focus(); };
+  ab.appendChild(addTile);
 
   const more = fieldset(form, 'Start, dice & notes');
   const r2 = el('div', 'row');
@@ -816,12 +900,25 @@ function memoryForm(form, rec, used) {
   r2.appendChild(textField(rec, 'offered weight', 'Offered weight', { number: true, hint: '(1 if empty)' }, used));
   more.appendChild(r2);
   more.appendChild(textField(rec, 'mechanical clarification', 'Mechanical clarification', { area: true, hint: '(shown when you right-click it)' }, used));
-  more.appendChild(tagsField(rec, used));
-  const art = textField(rec, 'artwork', 'Artwork notes', {}, used);
-  more.appendChild(art);
+
+  // filled in by Claude when bringing it into the game
+  const other = otherInfo(form);
+  other.appendChild(textField(rec, 'id', 'Id', { hint: '(Claude fills this in)' }, used));
+  other.appendChild(tagsField(rec, used));
+  other.appendChild(textField(rec, 'artwork', 'Artwork notes', {}, used));
 }
 
-function tileEditor(rec, h, label) {
+/** The collapsed "Other info" section every form ends with (the leftover columns go in it too). */
+function otherInfo(form) {
+  let fs = form.querySelector('.other-info fieldset');
+  if (!fs) {
+    fs = fieldset(form, 'Other info (Claude fills most of this in)', true);
+    fs.parentElement.classList.add('other-info');
+  }
+  return fs;
+}
+
+function tileEditor(rec, h, label, onRemove) {
   const box = el('div', 'tile-ed' + (isChanged(rec, h) ? ' changed' : ''));
   const p = parseTile(rec.cur[h]);
   p.prefixFor = p.kw ? p.kw.id : null;
@@ -839,10 +936,11 @@ function tileEditor(rec, h, label) {
   kwSel.value = p.kind === 'kw' ? 'kw:' + p.kw.id : p.kind;
   const n = el('input'); n.type = 'number'; n.min = 0; n.value = p.n || ''; n.title = 'how many';
   const stat = el('select');
-  for (const s of ['Vanity', 'Fading', 'Aggression']) { const o = el('option'); o.value = s; o.textContent = s; stat.appendChild(o); }
-  stat.value = /^ag/i.test(p.stat) ? 'Aggression' : /^fad/i.test(p.stat) ? 'Fading' : 'Vanity';
+  for (const s of ['Vanity', 'Fortitude', 'Aggression']) { const o = el('option'); o.value = s; o.textContent = s; stat.appendChild(o); }
+  stat.value = /^ag/i.test(p.stat) ? 'Aggression' : /^(fad|fort)/i.test(p.stat) ? 'Fortitude' : 'Vanity';
   const icon = el('div', 'pickicon');
   top.append(icon, kwSel, stat, n);
+  if (onRemove) { const x = el('button', 'xbtn'); x.textContent = '×'; x.title = 'Remove this ability'; x.onclick = onRemove; top.appendChild(x); }
   const ta = el('textarea');
   ta.value = p.kind === 'none' ? p.text : p.body;
   ta.placeholder = 'What it does…';
@@ -912,11 +1010,10 @@ function tagsField(rec, used) {
 
 function glimpseForm(form, rec, used) {
   const top = fieldset(form, 'Glimpse');
+  const m = glimpseModel(rec);
+  const defaultInfo = { encounter: 'Fight', memory: 'New Memory' }[val(rec, 'kind').toLowerCase()] || (/^(y|yes)/i.test(val(rec, 'player picks a memory')) ? 'Tamper' : 'Event');
+  top.appendChild(textField(rec, 'info line', 'Info line', { create: true, placeholder: defaultInfo, hint: '(the small line above the title, e.g. NEW MEMORY)' }, used));
   top.appendChild(textField(rec, 'title', 'Title', { big: true }, used));
-  const r = el('div', 'row');
-  r.appendChild(textField(rec, 'id', 'Id', { hint: '(unique, no spaces)' }, used));
-  r.appendChild(selectField(rec, 'kind', 'Kind', [['effects', 'effects (an event)'], ['memory', 'memory (a new memory)'], ['encounter', 'encounter (a fight)']], used, { onchange: () => renderPreview() }));
-  top.appendChild(r);
   top.appendChild(statusField(rec, used));
 
   const look = fieldset(form, 'Colour');
@@ -945,101 +1042,228 @@ function glimpseForm(form, rec, used) {
   }
 
   const what = fieldset(form, 'What it does');
-  what.appendChild(textField(rec, 'text', 'Text', { area: true, rows: 3 }, used));
-  what.appendChild(checkField(rec, 'player picks a memory', 'The player picks a memory for it (a “tamper” — dragged onto a memory)', used));
+  what.appendChild(textField(rec, 'what it does', 'What it does', { create: true, area: true, rows: 5,
+    placeholder: 'Explain what happens when you pick it, mechanically. Claude turns this into the game\'s short text and its effects.' }, used));
+  if (!val(rec, 'what it does').trim() && val(rec, 'text').trim()) {
+    const now = el('div', 'reads'); now.innerHTML = `<b>The game says now:</b> ${esc(val(rec, 'text'))}`; what.appendChild(now);
+  }
+
+  const other = otherInfo(form);
+  other.appendChild(textField(rec, 'id', 'Id', { hint: '(Claude fills this in)' }, used));
+  other.appendChild(selectField(rec, 'kind', 'Kind', [['effects', 'effects (an event)'], ['memory', 'memory (a new memory)'], ['encounter', 'encounter (a fight)']], used, { onchange: () => renderPreview() }));
+  other.appendChild(textField(rec, 'text', 'In-game text', { area: true, rows: 2 }, used));
+  other.appendChild(checkField(rec, 'player picks a memory', 'The player picks a memory for it (a “tamper”)', used));
   const r2 = el('div', 'row');
   r2.appendChild(textField(rec, 'cost', 'Cost', { placeholder: 'e.g. 1 bone' }, used));
   r2.appendChild(textField(rec, 'offered weight', 'Offered weight', { number: true }, used));
   r2.appendChild(textField(rec, 'from depth', 'From depth', { number: true }, used));
   r2.appendChild(textField(rec, 'to depth', 'To depth', { number: true }, used));
-  what.appendChild(r2);
-
-  const adv = fieldset(form, 'Effects (advanced)', true);
-  adv.appendChild(textField(rec, 'effects', 'Effects', { area: true, code: true, hint: '(JSON the game runs; leave empty while it\'s an idea)' }, used));
-  adv.appendChild(textField(rec, 'if you have', 'If you have', {}, used));
-  adv.appendChild(textField(rec, 'then also', 'Then also', { code: true }, used));
-  adv.appendChild(textField(rec, 'otherwise', 'Otherwise', { code: true }, used));
-  textField(rec, 'artwork', '', {}, used);
+  other.appendChild(r2);
+  other.appendChild(textField(rec, 'effects', 'Effects', { area: true, code: true }, used));
+  other.appendChild(textField(rec, 'if you have', 'If you have', {}, used));
+  other.appendChild(textField(rec, 'then also', 'Then also', { code: true }, used));
+  other.appendChild(textField(rec, 'otherwise', 'Otherwise', { code: true }, used));
+  other.appendChild(textField(rec, 'artwork', 'Artwork notes', {}, used));
 }
 
 // --- encounters ---
 
-function encounterForm(form, rec, used) {
-  if (H(rec.tab, 'intents')) return encounterForm2(form, rec, used);
-  ensureDatalist('enemyNames', Object.keys(R.AD.enemies).map(k => k.replace(/\b\w/g, c => c.toUpperCase())));
-  const top = fieldset(form, 'Encounter');
-  top.appendChild(textField(rec, 'name', 'Name', { big: true }, used));
-  const r = el('div', 'row');
-  r.appendChild(textField(rec, 'id', 'Id', {}, used));
-  r.appendChild(textField(rec, 'depth', 'Depth', { placeholder: '1–4' }, used));
-  r.appendChild(textField(rec, 'how often', 'How often', { number: true }, used));
-  r.appendChild(checkField(rec, 'boss', 'Boss', used));
-  top.appendChild(r);
-  top.appendChild(statusField(rec, used));
+// A bar's type → the sheet's columns for it (one bar of each type per enemy)
+const BAR_TYPES = [
+  { type: 'aggression', label: 'Aggression', verb: 'Slay', need: 'to slay', reward: 'slay reward', word: 'aggression', stat: 'aggression' },
+  { type: 'fortitude', label: 'Fortitude', verb: 'Sneak', need: 'to sneak', reward: 'sneak reward', word: 'fortitude', stat: 'fortitude', hint: 'heal this much' },
+  { type: 'vanity', label: 'Vanity', verb: 'Soothe', need: 'to soothe', reward: 'soothe reward', word: 'vanity', stat: 'vanity' },
+  { type: 'other', label: 'Other', verb: 'Other', need: 'to dismiss', reward: 'dismiss reward', word: '', stat: 'sight' },
+];
+const RESETS = /\s*\(resets\)|\s*,?\s*(?:then\s+)?resets? (?:this|the) bar\.?/ig;
 
-  const who = fieldset(form, 'Who you face');
-  who.appendChild(textField(rec, 'components', 'Enemies', { list: 'enemyNames', hint: '(comma between them; “2 × Lantern Moth” for more than one)' }, used));
-  who.appendChild(textField(rec, 'mechanics', 'What they do', { area: true, rows: 4, hint: '(one line per enemy: “Name: …”)' }, used));
-  who.appendChild(textField(rec, 'duration', 'Duration', {}, used));
-
-  const win = fieldset(form, 'Ways out');
-  const hs = tabData(rec.tab).headers;
-  const pair = (needKey, rewardKey, needLabel, rewardLabel) => {
-    const row = el('div', 'row');
-    row.appendChild(textField(rec, needKey, needLabel, {}, used));
-    row.appendChild(textField(rec, rewardKey, rewardLabel, {}, used));
-    win.appendChild(row);
-  };
-  pair('to slay', 'slay reward', 'To slay', 'Slay reward');
-  pair('to escape', 'escape reward', 'To sneak past', 'Sneak reward');
-  const sootheH = hs.find(h => /soothe/i.test(h) && !/reward/i.test(h)), sootheR = hs.find(h => /soothe/i.test(h) && /reward/i.test(h));
-  if (sootheH) pair(sootheH, sootheR || sootheH, 'To soothe', 'Soothe reward');
-  win.appendChild(textField(rec, 'other way to win', 'Other way to win', {}, used));
-  win.appendChild(textField(rec, 'if the clock runs out', 'If the clock runs out', {}, used));
-  form.appendChild(el('div'));
-  const notes = fieldset(form, 'Notes');
-  notes.appendChild(textField(rec, 'notes', 'Notes / flavour', { area: true }, used));
-  textField(rec, 'artwork', '', {}, used);
+/** Splits "A: x; B (each): y" (or, with newlines, "A: x\nB: y") into one part per enemy. */
+function partsFor(text, enemies, lines) {
+  text = String(text || '').trim();
+  const out = enemies.map(() => '');
+  if (!text) return out;
+  if (enemies.length <= 1) { out[0] = text.replace(new RegExp('^\\s*' + (enemies[0] ? enemies[0].name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : '\\0') + '\\s*(?:\\(each\\))?\\s*:\\s*', 'i'), ''); return out; }
+  const pieces = lines ? text.split(/\n+/) : text.split(/;\s*/);
+  let any = false, last = -1;
+  for (const piece of pieces) {
+    const m = piece.match(/^\s*([^:]+?)(?:\s*\(each\))?\s*:\s*([\s\S]*)$/);
+    const i = m ? enemies.findIndex(e => e.name.toLowerCase() === m[1].trim().toLowerCase()) : -1;
+    if (i >= 0) { out[i] = m[2].trim(); any = true; last = i; }
+    else if (last >= 0 && lines) out[last] += '\n' + piece;
+  }
+  if (!any) return enemies.map(() => text);   // one value for all of them
+  return out;
+}
+/** The other way round: one part per enemy → a cell ("A: x; B (each): y"), or just "x" when they're all the same. */
+function joinParts(values, enemies, lines) {
+  if (enemies.length <= 1) return values[0] || '';
+  if (values.every(v => v && v === values[0])) return values[0];
+  return values.map((v, i) => v ? `${enemies[i].name}${enemies[i].count > 1 ? ' (each)' : ''}: ${v}` : '').filter(Boolean).join(lines ? '\n' : '; ');
 }
 
-function encounterForm2(form, rec, used) {
+/** Reads an encounter row into enemies: [{ name, count, intents:[], about, bars:[{type, need, reward, reset}] }]. */
+function readEnemies(rec) {
+  const enemies = val(rec, 'enemies').split(/,\s*/).map(x => x.trim()).filter(Boolean).map(x => {
+    const m = x.match(/^(\d+)\s*[×x]\s*(.+)$/i);
+    return { name: m ? m[2].trim() : x, count: m ? Number(m[1]) : 1, intents: [], about: '', bars: [] };
+  });
+  if (!enemies.length) enemies.push({ name: '', count: 1, intents: [], about: '', bars: [] });
+  partsFor(val(rec, 'intents'), enemies).forEach((t, i) => { enemies[i].intents = t.split(/\s*(?:→|->)\s*/).map(x => x.trim()).filter(Boolean); });
+  partsFor(val(rec, 'what they do'), enemies, true).forEach((t, i) => { enemies[i].about = t; });
+  for (const bt of BAR_TYPES) {
+    const needs = partsFor(val(rec, bt.need), enemies), rewards = partsFor(val(rec, bt.reward), enemies);
+    enemies.forEach((e, i) => {
+      const n = (needs[i].match(/(\d+)/) || [])[1];
+      if (!n && !rewards[i]) return;
+      RESETS.lastIndex = 0;
+      const reset = RESETS.test(rewards[i]);
+      e.bars.push({ type: bt.type, need: n || '', reward: rewards[i].replace(RESETS, '').trim(), reset });
+    });
+  }
+  return enemies;
+}
+/** Writes enemies back into the encounter's columns. */
+function writeEnemies(ref, enemies) {
+  const list = enemies.filter(e => e.name.trim() || e.intents.length || e.about.trim() || e.bars.length);
+  const named = list.map(e => ({ ...e, name: e.name.trim() || 'Unnamed enemy', count: Math.max(1, Number(e.count) || 1) }));
+  const set = (key, v) => { const rec = record(real(ref)); if (val(rec, key) !== v) setVal(ref, HR(rec, key) || key, v); };
+  set('enemies', named.map(e => e.count > 1 ? `${e.count} × ${e.name}` : e.name).join(', '));
+  set('intents', joinParts(named.map(e => e.intents.filter(x => x.trim()).join(' → ')), named));
+  set('what they do', joinParts(named.map(e => e.about.trim()), named, true));
+  for (const bt of BAR_TYPES) {
+    const bar = e => e.bars.find(b => b.type === bt.type);
+    set(bt.need, joinParts(named.map(e => bar(e) && bar(e).need !== '' ? `${bar(e).need}${bt.word ? ' ' + bt.word : ''}` : ''), named));
+    set(bt.reward, joinParts(named.map(e => bar(e) ? `${bar(e).reward.trim()}${bar(e).reset ? ' (resets)' : ''}`.trim() : ''), named));
+  }
+}
+
+function encounterForm(form, rec, used) {
   ensureDatalist('enemyNames', Object.keys(R.AD.enemies).map(k => k.replace(/\b\w/g, c => c.toUpperCase())));
-  ensureDatalist('musicNames', [...new Set(records('Encounters').map(r => val(r, 'music')).filter(Boolean))].sort());
   const top = fieldset(form, 'Encounter');
   top.appendChild(textField(rec, 'name', 'Name', { big: true }, used));
   const r = el('div', 'row');
-  r.appendChild(textField(rec, 'id', 'Id', {}, used));
   r.appendChild(textField(rec, 'depth', 'Depth', { placeholder: '1–4' }, used));
-  r.appendChild(textField(rec, 'how often', 'How often', { number: true }, used));
-  r.appendChild(checkField(rec, 'boss', 'Boss', used));
+  r.appendChild(textField(rec, 'how often', 'Weight', { number: true, hint: '(how often)' }, used));
+  r.appendChild(textField(rec, 'rounds', 'Rounds', { hint: '(timed fight)' }, used));
   top.appendChild(r);
-  const r2 = el('div', 'row');
-  r2.appendChild(textField(rec, 'music', 'Music', { list: 'musicNames' }, used));
-  r2.appendChild(textField(rec, 'rounds', 'Rounds', { hint: '(timed fight)' }, used));
-  r2.appendChild(textField(rec, 'enemy memory', 'Enemy memory', { hint: '(put in your ring)' }, used));
-  top.appendChild(r2);
   top.appendChild(statusField(rec, used));
 
-  const who = fieldset(form, 'Who you face');
-  who.appendChild(textField(rec, 'enemies', 'Enemies', { list: 'enemyNames', hint: '(comma between them; “2 × Lantern Moth” for more than one)' }, used));
-  who.appendChild(textField(rec, 'intents', 'Intents', { area: true, rows: 3, hint: '(in order, at the end of each turn: “Lash (Attack 4) → Toll (Attack 6)”; with several enemies “Name: …; Other (each): …”)' }, used));
-  who.appendChild(textField(rec, 'traits', 'Traits & rules', { area: true, rows: 2 }, used));
+  for (const k of ['enemies', 'intents', 'what they do', ...BAR_TYPES.flatMap(b => [b.need, b.reward])]) { const h = HR(rec, k); if (h) used.add(h); }
+  const enemies = readEnemies(rec);
+  const write = () => writeEnemies(rec.ref, enemies);
+  const box = el('div', 'enemies');
+  form.appendChild(box);
+  const draw = () => {
+    box.innerHTML = '';
+    enemies.forEach((e, ei) => {
+      const fs = el('fieldset', 'enemy');
+      fs.innerHTML = `<legend>Enemy ${ei + 1}${e.name ? ' — ' + esc(e.name) : ''}</legend>`;
+      // who
+      const who = el('div', 'row');
+      const nameF = el('div', 'f'); nameF.style.flex = '3';
+      nameF.innerHTML = '<label>Enemy</label>';
+      const nameI = el('input'); nameI.type = 'text'; nameI.value = e.name; nameI.setAttribute('list', 'enemyNames'); nameI.placeholder = 'Hollow Pilgrim';
+      nameI.oninput = () => { e.name = nameI.value; fs.querySelector('legend').textContent = `Enemy ${ei + 1}${e.name ? ' — ' + e.name : ''}`; write(); };
+      nameF.appendChild(nameI);
+      const countF = el('div', 'f'); countF.style.flex = '0 0 90px';
+      countF.innerHTML = '<label>How many</label>';
+      const countI = el('input'); countI.type = 'number'; countI.min = 1; countI.value = e.count;
+      countI.oninput = () => { e.count = Number(countI.value) || 1; write(); };
+      countF.appendChild(countI);
+      who.append(nameF, countF);
+      if (enemies.length > 1) {
+        const x = el('button', 'xbtn big'); x.textContent = '×'; x.title = 'Remove this enemy';
+        x.onclick = () => { if (!confirm(`Remove ${e.name || 'this enemy'} from the encounter?`)) return; enemies.splice(ei, 1); write(); draw(); };
+        who.appendChild(x);
+      }
+      fs.appendChild(who);
 
-  const win = fieldset(form, 'Ways out');
-  const pair = (needKey, rewardKey, needLabel, rewardLabel, ph) => {
-    const row = el('div', 'row');
-    row.appendChild(textField(rec, needKey, needLabel, { placeholder: ph }, used));
-    row.appendChild(textField(rec, rewardKey, rewardLabel, {}, used));
-    win.appendChild(row);
+      // intent tiles
+      const it = el('div', 'f');
+      it.innerHTML = '<label>Intent tiles <span class="hint">(in order, one each turn: “Lash (Attack 4)”)</span></label>';
+      const itBox = el('div', 'intents-ed');
+      const shownIntents = e.intents.length ? e.intents : [''];
+      shownIntents.forEach((t, ii) => {
+        const row = el('div', 'listrow intent-row');
+        const n = el('span', 'num'); n.textContent = ii + 1;
+        const inp = el('input'); inp.type = 'text'; inp.value = t; inp.placeholder = 'Name (what it does, Attack N)';
+        inp.oninput = () => { if (!e.intents.length) e.intents.push(''); e.intents[ii] = inp.value; write(); };
+        row.append(n, inp);
+        if (shownIntents.length > 1) { const x = el('button', 'xbtn'); x.textContent = '×'; x.onclick = () => { e.intents.splice(ii, 1); write(); draw(); }; row.appendChild(x); }
+        itBox.appendChild(row);
+      });
+      const addI = el('button', 'btn small addbtn'); addI.textContent = '+ Add intent';
+      addI.onclick = () => { if (!e.intents.length) e.intents.push(''); e.intents.push(''); draw(); const ins = box.querySelectorAll('fieldset.enemy')[ei].querySelectorAll('.intent-row input'); if (ins.length) ins[ins.length - 1].focus(); };
+      it.append(itBox, addI);
+      fs.appendChild(it);
+
+      // what it does
+      const ab = el('div', 'f');
+      ab.innerHTML = '<label>What it does <span class="hint">(its passives and anything special; Claude writes the game\'s version)</span></label>';
+      const ta = el('textarea'); ta.rows = 3; ta.value = e.about;
+      ta.oninput = () => { e.about = ta.value; write(); };
+      ab.appendChild(ta);
+      fs.appendChild(ab);
+
+      // bars
+      const bars = el('div', 'f');
+      bars.innerHTML = '<label>Bars <span class="hint">(type · how much · what you get · reset when filled)</span></label>';
+      if (!e.bars.length) e.bars.push({ type: 'aggression', need: '', reward: '', reset: false });   // starts with one (an empty one isn't saved)
+      const shownBars = e.bars;
+      shownBars.forEach((b, bi) => {
+        const row = el('div', 'bar-row');
+        const type = el('select');
+        for (const bt of BAR_TYPES) { const o = el('option'); o.value = bt.type; o.textContent = bt.label; type.appendChild(o); }
+        type.value = b.type;
+        const ic = el('div', 'pickicon');
+        const drawIc = () => { ic.innerHTML = ''; const bt = BAR_TYPES.find(x => x.type === type.value); ic.appendChild(img(R.iconFile(bt.stat === 'sight' ? 'sight' : bt.stat))); };
+        drawIc();
+        const need = el('input'); need.type = 'number'; need.min = 0; need.value = b.need; need.placeholder = 'N';
+        need.title = type.value === 'fortitude' ? 'Fortitude to gain (heal) this fight' : 'How much';
+        const rw = el('input'); rw.type = 'text'; rw.value = b.reward; rw.placeholder = 'What you get (e.g. 2 stone)';
+        const rs = el('label', 'check small'); const cb = el('input'); cb.type = 'checkbox'; cb.checked = !!b.reset; rs.append(cb, document.createTextNode('Reset'));
+        rs.title = 'The bar empties and can be filled again (otherwise it pays out once)';
+        const x = el('button', 'xbtn'); x.textContent = '×'; x.title = 'Remove this bar';
+        type.onchange = () => {
+          if (e.bars.some((o, oi) => oi !== bi && o.type === type.value)) { toast(`${e.name || 'This enemy'} already has a ${type.value} bar: one of each type per enemy.`, true); type.value = b.type; return; }
+          b.type = type.value; drawIc(); write();
+        };
+        need.oninput = () => { b.need = need.value; write(); };
+        rw.oninput = () => { b.reward = rw.value; write(); };
+        cb.onchange = () => { b.reset = cb.checked; write(); };
+        x.onclick = () => { e.bars.splice(bi, 1); write(); draw(); };
+        row.append(ic, type, need, rw, rs, x);
+        bars.appendChild(row);
+      });
+      const addB = el('button', 'btn small addbtn'); addB.textContent = '+ Add bar';
+      addB.onclick = () => {
+        const free = BAR_TYPES.find(bt => !e.bars.some(b => b.type === bt.type));
+        if (!free) { toast('It already has one bar of each type.'); return; }
+        e.bars.push({ type: free.type, need: '', reward: '', reset: false });
+        draw();
+        const rowsNow = box.querySelectorAll('fieldset.enemy')[ei].querySelectorAll('.bar-row input[type=number]'); if (rowsNow.length) rowsNow[rowsNow.length - 1].focus();
+      };
+      bars.appendChild(addB);
+      fs.appendChild(bars);
+      box.appendChild(fs);
+    });
+    const addE = el('button', 'btn addbtn add-enemy'); addE.textContent = '+ Add enemy';
+    addE.onclick = () => { enemies.push({ name: '', count: 1, intents: [], about: '', bars: [{ type: 'aggression', need: '', reward: '', reset: false }] }); draw(); const ins = box.querySelectorAll('fieldset.enemy'); ins[ins.length - 1].querySelector('input').focus(); };
+    box.appendChild(addE);
   };
-  pair('to slay', 'slay reward', 'To slay', 'Slay reward', '12 aggression');
-  pair('to sneak', 'sneak reward', 'To sneak', 'Sneak reward', '7 fading');
-  pair('to soothe', 'soothe reward', 'To soothe', 'Soothe reward', '4 vanity');
-  pair('to dismiss', 'dismiss reward', 'To dismiss', 'Dismiss reward', '');
-  win.appendChild(textField(rec, 'if the clock runs out', 'If the clock runs out', {}, used));
-  const notes = fieldset(form, 'Notes');
-  notes.appendChild(textField(rec, 'notes', 'Notes / flavour', { area: true }, used));
-  textField(rec, 'artwork', '', {}, used);
+  draw();
+
+  const other = otherInfo(form);
+  other.appendChild(textField(rec, 'id', 'Id', { hint: '(Claude fills this in)' }, used));
+  other.appendChild(checkField(rec, 'boss', 'Boss', used));
+  const r2 = el('div', 'row');
+  r2.appendChild(textField(rec, 'music', 'Music', {}, used));
+  r2.appendChild(textField(rec, 'enemy memory', 'Enemy memory', {}, used));
+  other.appendChild(r2);
+  other.appendChild(textField(rec, 'if the clock runs out', 'If the clock runs out', {}, used));
+  other.appendChild(textField(rec, 'traits', 'Traits & rules (the game\'s text)', { area: true, rows: 2 }, used));
+  other.appendChild(textField(rec, 'notes', 'Notes / flavour', { area: true }, used));
+  other.appendChild(textField(rec, 'artwork', 'Artwork notes', {}, used));
 }
 
 // --- keywords & runes ---
@@ -1102,6 +1326,63 @@ function runeForm(form, rec, used) {
   look.appendChild(textField(rec, 'description', 'Description', { area: true }, used));
   look.appendChild(textField(rec, 'mechanical clarification', 'Mechanical clarification', { area: true }, used));
   textField(rec, 'artwork', '', {}, used);
+}
+
+// ----- requirements -------------------------------------------------------------------------------------
+
+/** "Only if: you have Spiteful King Upon His Throne" / "Never if: you've fought the Hollow Pilgrim", one per line. */
+function parseRequirements(text) {
+  return String(text || '').split(/\n/).map(l => l.trim()).filter(Boolean).map(l => {
+    const m = l.match(/^(only if|never if)\s*:\s*([\s\S]*)$/i);
+    return m ? { never: /^never/i.test(m[1]), text: m[2].trim() } : { never: false, text: l };
+  });
+}
+const writeRequirements = list => list.filter(r => r.text.trim()).map(r => `${r.never ? 'Never if' : 'Only if'}: ${r.text.trim()}`).join('\n');
+
+function openRequirements(ref) {
+  const rec = record(real(ref));
+  let list = parseRequirements(val(rec, 'requirements'));
+  if (!list.length) list = [{ never: false, text: '' }];
+  let d = document.getElementById('reqDialog');
+  if (d) d.remove();
+  d = el('dialog'); d.id = 'reqDialog';
+  d.innerHTML = `<h3>Requirements</h3><p class="dim">When this can turn up. <b>Only if</b>: you'll only see it when this is true.
+    <b>Never if</b>: you won't see it once this is true. Write them however you like; Claude makes the game check them.</p>`;
+  const rows = el('div', 'req-rows');
+  const save = () => setVal(real(ref), 'requirements', writeRequirements(list));
+  const draw = () => {
+    rows.innerHTML = '';
+    list.forEach((r, i) => {
+      const row = el('div', 'req-row');
+      const tg = el('div', 'toggle');
+      for (const [never, label] of [[false, 'Only if'], [true, 'Never if']]) {
+        const b = el('button', r.never === never ? 'on' + (never ? ' never' : '') : '');
+        b.textContent = label;
+        b.onclick = () => { r.never = never; save(); draw(); };
+        tg.appendChild(b);
+      }
+      const inp = el('input'); inp.type = 'text'; inp.value = r.text;
+      inp.placeholder = r.never ? "e.g. you've fought the Hollow Pilgrim" : 'e.g. you have Spiteful King Upon His Throne';
+      inp.oninput = () => { r.text = inp.value; save(); };
+      const x = el('button', 'xbtn'); x.textContent = '×'; x.title = 'Remove';
+      x.onclick = () => { list.splice(i, 1); if (!list.length) list.push({ never: false, text: '' }); save(); draw(); };
+      row.append(tg, inp, x);
+      rows.appendChild(row);
+    });
+  };
+  draw();
+  d.appendChild(rows);
+  const actions = el('div', 'actions');
+  const add = el('button', 'btn small'); add.textContent = '+ Add condition';
+  add.onclick = () => { list.push({ never: false, text: '' }); draw(); const ins = rows.querySelectorAll('input'); ins[ins.length - 1].focus(); };
+  const done = el('button', 'btn primary'); done.textContent = 'Done';
+  done.onclick = () => d.close();
+  actions.append(add, el('span', null, { flex: 1 }), done);
+  d.appendChild(actions);
+  d.addEventListener('close', () => { d.remove(); renderForm(); });
+  document.body.appendChild(d);
+  d.showModal();
+  const first = rows.querySelector('input'); if (first) first.focus();
 }
 
 // ----- preview ------------------------------------------------------------------------------------------
@@ -1199,29 +1480,17 @@ function previewEncounter(stage, rec) {
   if (bits.length) { notes.innerHTML = bits.join(''); stage.appendChild(notes); }
 }
 
-/** The Encounters tab as it is now: enemies, intents, traits & rules, sneak / soothe / dismiss. */
+/** What the fight shows, from the same reading as the form. */
 function encounterModel2(rec) {
-  const comps = (val(rec, 'enemies') || val(rec, 'name')).split(/,\s*/).map(s => s.trim()).filter(Boolean).map(s => {
-    const m = s.match(/^(\d+)\s*[×x]\s*(.+)$/i);
-    return { count: m ? Number(m[1]) : 1, name: m ? m[2].trim() : s };
-  });
-  const single = comps.length <= 1;
-  const tidyRules = t => String(t || '').replace(/\s*rules:\s*[\w, ]+$/i, '').trim();
-  return comps.map(c => {
-    const known = R.AD.enemies[c.name.toLowerCase()] || {};
-    const bar = (stat, verb, needKey, rewardKey) => {
-      const t = partFor(val(rec, needKey), c.name, single);
-      const n = (t.match(/(\d+)/) || [])[1];
-      const reward = partFor(val(rec, rewardKey), c.name, single);
-      return { stat, verb, need: n ? Number(n) : 0, label: t && !n ? t : '', reward, skip: !t && !reward };
-    };
-    const bars = [bar('aggression', 'Slay', 'to slay', 'slay reward'), bar('fading', 'Sneak', 'to sneak', 'sneak reward'),
-      bar('vanity', 'Soothe', 'to soothe', 'soothe reward')].filter(b => !b.skip);
-    const dismiss = val(rec, 'to dismiss');
-    if (dismiss || val(rec, 'dismiss reward')) bars.push({ stat: 'aggression', verb: 'Dismiss', need: 0, label: 'Dismiss: ' + dismiss, reward: val(rec, 'dismiss reward') });
-    for (const b of bars) if (!b.need && !b.label) b.label = `can't ${b.verb.toLowerCase()}`;
-    return { name: c.name, count: c.count, art: known.art || '', flavor: known.flavor || '', intent: partFor(val(rec, 'intents'), c.name, single),
-      traits: tidyRules(single ? val(rec, 'traits') : partFor(val(rec, 'traits'), c.name, false)), bars, unknown: !known.id };
+  const traits = partsFor(val(rec, 'traits'), readEnemies(rec), true);
+  return readEnemies(rec).filter(e => e.name || e.bars.length || e.intents.length).map((e, i) => {
+    const known = R.AD.enemies[e.name.toLowerCase()] || {};
+    const bars = e.bars.map(b => {
+      const bt = BAR_TYPES.find(x => x.type === b.type);
+      return { stat: bt.stat, verb: bt.verb, need: Number(b.need) || 0, label: b.need ? '' : `${bt.label}: no number yet`, reward: b.reward + (b.reset ? ' (resets)' : '') };
+    });
+    return { name: e.name || 'Unnamed enemy', count: e.count, art: known.art || '', flavor: known.flavor || '', intent: e.intents.join(' → '),
+      traits: (e.about || traits[i] || '').replace(/\s*rules:\s*[\w, ]+$/i, ''), bars, unknown: !known.id };
   });
 }
 

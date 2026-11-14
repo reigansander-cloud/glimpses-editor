@@ -222,3 +222,47 @@ dialog ol { padding-left: 20px; color: var(--dim); line-height: 1.6; margin: 0 0
 dialog .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
 dialog .msg { font-size: 13px; margin-top: 8px; min-height: 18px; }
 dialog .msg.bad { color: #f0a090; } dialog .msg.ok { color: var(--good); }
+
+/* ----- lists you add to (runes, abilities, intents, bars, enemies) ----- */
+.two-col { display: grid; grid-template-columns: minmax(170px, 0.85fr) 1.15fr; gap: 16px; align-items: start; }
+.statcol { display: flex; flex-direction: column; gap: 6px; }
+.statcol .attr { padding: 4px 6px; }
+.statcol .attr img { width: 26px; height: 26px; }
+.statcol .attr .name { display: block; flex: 1; font-size: 13px; color: var(--dim); }
+.statcol .attr .v { flex: 0 0 26px; font-size: 16px; }
+.runecol .lbl { margin-bottom: 6px; }
+.listrow { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+.listrow select, .listrow input { flex: 1; min-width: 0; }
+.xbtn { flex: none; width: 28px; height: 28px; border-radius: 7px; border: 1px solid var(--line); background: #16110d; color: var(--dim); font-size: 16px; line-height: 1; padding: 0; }
+.xbtn:hover { color: #ffd6cf; border-color: var(--bad); }
+.xbtn.big { align-self: flex-end; margin-bottom: 10px; height: 34px; width: 34px; }
+.addbtn { margin-top: 2px; border-style: dashed; color: var(--dim); background: transparent; }
+.addbtn:hover { color: var(--gold); border-color: var(--gold); background: rgba(227,194,124,.06); }
+.tile-ed .top .xbtn { margin-left: 2px; }
+fieldset.enemy { border-color: #6e3a2e; background: linear-gradient(#26191a, var(--panel)); }
+fieldset.enemy legend { color: #ef9d7e; }
+.add-enemy { width: 100%; padding: 10px; margin-bottom: 14px; font-size: 14px; }
+.intent-row .num { flex: none; width: 22px; height: 22px; border-radius: 50%; background: #7a1f1a; border: 1px solid #d9a35a; color: #f3d58e;
+  font: 700 11px var(--ui); display: flex; align-items: center; justify-content: center; }
+.bar-row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+.bar-row select { flex: 0 0 118px; }
+.bar-row input[type=number] { flex: 0 0 64px; }
+.bar-row input[type=text] { flex: 1; min-width: 0; }
+.bar-row .pickicon { width: 28px; height: 28px; }
+.check.small { font-size: 12.5px; color: var(--dim); white-space: nowrap; gap: 5px; padding: 0 2px; }
+.check.small input { width: 15px; height: 15px; }
+.other-info { margin-bottom: 14px; }
+.other-info > summary { color: var(--gold); font-size: 13px; }
+.reads { font-size: 12px; color: var(--faint); margin-top: 6px; }
+.reads b { color: var(--dim); }
+
+/* ----- requirements ----- */
+.btn.req.has { border-color: #8a7240; color: var(--gold); }
+#reqDialog .dim { color: var(--dim); font-size: 13px; line-height: 1.5; margin: 0 0 12px; }
+.req-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+.req-row input { flex: 1; }
+.toggle { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; flex: none; }
+.toggle button { border: 0; background: #16110d; color: var(--dim); padding: 6px 10px; font-size: 12.5px; }
+.toggle button.on { background: #3d5a36; color: #e6f7df; font-weight: 600; }
+.toggle button.on.never { background: #6b2a24; color: #ffe1db; }
+#reqDialog .actions { align-items: center; }
