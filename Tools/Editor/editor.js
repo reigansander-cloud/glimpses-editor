@@ -1350,7 +1350,9 @@ function maskForm(form, rec, used) {
   const drawPics = () => {
     grid.innerHTML = '';
     const cur = String((record(rec.ref) || rec).cur[mh] ?? '').trim();
-    for (const f of R.AD.files.filter(x => /^mask_.*\.png$/.test(x))) {
+    // (not the wooden masks or the mask token: those aren't mask looks)
+    const notLooks = new Set(['empty', 'maw', 'rot', 'spite', 'tendril', 'token']);
+    for (const f of R.AD.files.filter(x => /^mask_.*\.png$/.test(x) && !notLooks.has(x.slice(5, -4)))) {
       const name = f.slice(5, -4);
       const b = el('button', 'glyph' + (cur === name ? ' on' : ''));
       b.title = name; b.appendChild(img(f));
