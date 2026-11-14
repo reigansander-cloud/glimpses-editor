@@ -16,7 +16,10 @@ const TABS = {
   Encounters: { title: 'name', sub: 'id', match: 'id', newValues: { name: 'New Encounter' }, label: 'Encounters' },
   Keywords: { title: 'name', sub: 'id', match: 'id', newValues: { name: 'New Keyword' }, label: 'Keywords' },
   Runes: { title: 'name', sub: 'id', match: 'name', newValues: { name: 'New Rune' }, label: 'Runes' },
+  Masks: { title: 'name', sub: 'id', match: 'id', newValues: { name: 'New Mask' }, label: 'Masks' },
 };
+/** What the Unlock (achievement) button is on; Requirements are on all of these but masks. */
+const UNLOCKABLE = ['Memories', 'Glimpses', 'Encounters', 'Masks'];
 
 // ----- state ---------------------------------------------------------------------------------------------
 
@@ -515,6 +518,11 @@ function renderFilters() {
 
 function itemTitle(rec) { const cfg = TABS[rec.tab]; return val(rec, cfg.title) || val(rec, 'name') || val(rec, 'id') || '(no name)'; }
 function itemSub(rec) {
+  const u = parseUnlock(val(rec, 'unlock'));
+  const sub = itemSub2(rec);
+  return u.name ? '🔒 ' + sub : sub;
+}
+function itemSub2(rec) {
   switch (rec.tab) {
     case 'Memories': {
       const bits = [];
@@ -525,6 +533,7 @@ function itemSub(rec) {
     }
     case 'Glimpses': return [val(rec, 'id'), val(rec, 'kind')].filter(Boolean).join(' · ');
     case 'Encounters': return [val(rec, 'id'), val(rec, 'depth') && 'depth ' + val(rec, 'depth')].filter(Boolean).join(' · ');
+    case 'Masks': return [val(rec, 'id'), (val(rec, 'starting memories').split(',').filter(x => x.trim()).length) + ' memories'].filter(Boolean).join(' · ');
     default: return [val(rec, 'id'), val(rec, 'symbol')].filter(Boolean).join(' · ');
   }
 }
@@ -539,6 +548,10 @@ function thumb(rec) {
     const m = glimpseModel(rec);
     t.classList.add('sw');
     t.style.background = `url("${R.artUrl('btn_' + m.color + '.png')}") center/cover`;
+  } else if (rec.tab === 'Masks') {
+    const f = `mask_${val(rec, 'mask').trim()}.png`;
+    t.style.background = 'none';
+    t.appendChild(img(R.has(f) ? f : 'mask_blank.png'));
   } else if (rec.tab === 'Encounters') {
     const m = encounterModel(rec)[0];
     t.appendChild(img(m && m.art && R.has(`mural_${m.art}.png`) ? `mural_${m.art}.png` : 'mural_spiral.png', { objectFit: 'cover', objectPosition: '50% 30%' }));
@@ -663,6 +676,14 @@ function renderForm() {
     const sv = el('button', 'btn primary small'); sv.textContent = rec.isNew ? 'Save to sheet' : 'Save this'; sv.onclick = () => save([ref]); head.appendChild(sv);
     const rv = el('button', 'btn small'); rv.textContent = rec.isNew ? 'Discard' : 'Undo changes'; rv.onclick = () => revert(ref); head.appendChild(rv);
   }
+  if (UNLOCKABLE.includes(rec.tab)) {
+    const u = parseUnlock(val(rec, 'unlock'));
+    const ub = el('button', 'btn small req' + (u.name ? ' has' : ''));
+    ub.textContent = u.name ? `🔒 ${u.name}` : 'Unlock condition';
+    ub.title = 'An achievement that unlocks this: until it\'s done, this never turns up';
+    ub.onclick = () => openUnlock(ref);
+    head.appendChild(ub);
+  }
   if (['Memories', 'Glimpses', 'Encounters'].includes(rec.tab)) {
     const n = parseRequirements(val(rec, 'requirements')).length;
     const rq = el('button', 'btn small req' + (n ? ' has' : ''));
@@ -678,10 +699,11 @@ function renderForm() {
     : `<b>${rec.tab}</b> tab, row ${rec.row}` + (isDirty(rec) ? (S.auto ? ' · saving soon…' : ` · ${changedHeaders(rec).length} change(s) not saved`) : ' · saved');
   form.appendChild(where);
 
-  const builders = { Memories: memoryForm, Glimpses: glimpseForm, Encounters: encounterForm, Keywords: keywordForm, Runes: runeForm };
+  const builders = { Memories: memoryForm, Glimpses: glimpseForm, Encounters: encounterForm, Keywords: keywordForm, Runes: runeForm, Masks: maskForm };
   const used = new Set();
   builders[rec.tab](form, rec, used);
   const rqh = HR(rec, 'requirements'); if (rqh) used.add(rqh);   // (the Requirements button)
+  const ulh = HR(rec, 'unlock'); if (ulh) used.add(ulh);         // (the Unlock button)
   // any other columns on the tab
   const statusH = H(rec.tab, 'status');
   const rest = tabData(rec.tab).headers.filter(h => h !== '' && !used.has(h) && h !== statusH);
@@ -1278,6 +1300,211 @@ function encounterForm(form, rec, used) {
   other.appendChild(textField(rec, 'artwork', 'Artwork notes', {}, used));
 }
 
+// --- masks ---
+
+/** Every memory a mask could start with: the Memories tab's, and the ones that aren't on it (Grey Space...). */
+function allMemoryNames() {
+  const names = new Set(records('Memories').map(r => val(r, 'name').trim()).filter(Boolean));
+  for (const n of Object.keys(R.AD.builtinMemories || {})) names.add(n);
+  return [...names].sort();
+}
+/** "Name (banner): what it does" → { name, banner, text } */
+function parseAction(t) {
+  const m = String(t || '').match(/^\s*([^:(]+?)\s*(?:\(([\w ]+)\))?\s*:\s*([\s\S]*)$/);
+  return m ? { name: m[1].trim(), banner: (m[2] || '').trim(), text: m[3].trim() } : { name: '', banner: '', text: String(t || '').trim() };
+}
+const writeAction = a => !a.name.trim() && !a.text.trim() ? '' : `${a.name.trim() || 'Action'}${a.banner ? ` (${a.banner})` : ''}: ${a.text.trim()}`;
+const writePassive = a => !a.name.trim() && !a.text.trim() ? '' : `${a.name.trim() || 'Passive'}: ${a.text.trim()}`;
+
+function attrSteppers(rec, used, box) {
+  for (const a of ['charm', 'grit', 'insight', 'guile']) {
+    const h = HR(rec, a) || a;
+    used.add(h);
+    const b = el('div', 'attr');
+    b.title = a[0].toUpperCase() + a.slice(1);
+    const minus = el('button'); minus.textContent = '−';
+    const plus = el('button'); plus.textContent = '+';
+    const v = el('div', 'v');
+    const nm = el('div', 'name'); nm.textContent = b.title;
+    const draw = () => { const n = Number((record(rec.ref) || rec).cur[h]) || 0; v.textContent = n || '–'; b.classList.toggle('set', n > 0); };
+    const bump = d => { const n = Math.max(0, Math.min(9, (Number((record(rec.ref) || rec).cur[h]) || 0) + d)); setVal(rec.ref, h, n ? String(n) : ''); draw(); };
+    minus.onclick = () => bump(-1); plus.onclick = () => bump(1);
+    b.append(img(`ico_${a}.png`), nm, minus, v, plus);
+    draw();
+    box.appendChild(b);
+  }
+}
+
+function maskForm(form, rec, used) {
+  ensureDatalist('memoryNames', allMemoryNames());
+  const top = fieldset(form, 'Mask');
+  top.appendChild(textField(rec, 'name', 'Name', { big: true }, used));
+  top.appendChild(statusField(rec, used));
+
+  const look = fieldset(form, 'Look');
+  const mh = HR(rec, 'mask') || 'mask';
+  used.add(mh);
+  const pf = el('div', 'f');
+  pf.innerHTML = '<label>Mask</label>';
+  const grid = el('div', 'glyphs masks');
+  const drawPics = () => {
+    grid.innerHTML = '';
+    const cur = String((record(rec.ref) || rec).cur[mh] ?? '').trim();
+    for (const f of R.AD.files.filter(x => /^mask_.*\.png$/.test(x))) {
+      const name = f.slice(5, -4);
+      const b = el('button', 'glyph' + (cur === name ? ' on' : ''));
+      b.title = name; b.appendChild(img(f));
+      b.onclick = () => { setVal(rec.ref, mh, name); drawPics(); };
+      grid.appendChild(b);
+    }
+  };
+  drawPics();
+  pf.appendChild(grid);
+  look.appendChild(pf);
+  look.appendChild(textField(rec, 'flavor', 'Flavour line', { placeholder: 'Every scatter is a dare.' }, used));
+
+  const st = fieldset(form, 'Start of a run');
+  const sh = HR(rec, 'starting memories') || 'starting memories';
+  used.add(sh);
+  const cols = el('div', 'two-col');
+  const left = el('div', 'statcol');
+  attrSteppers(rec, used, left);
+  const right = el('div');
+  right.innerHTML = '<div class="lbl">Starting memories</div>';
+  const memBox = el('div');
+  right.appendChild(memBox);
+  const list = () => String((record(rec.ref) || rec).cur[sh] ?? '').split(',').map(x => x.trim()).filter(Boolean);
+  const drawMems = () => {
+    memBox.innerHTML = '';
+    const shown = list().length ? list() : [''];
+    shown.forEach((name, i) => {
+      const row = el('div', 'listrow');
+      const inp = el('input'); inp.type = 'text'; inp.value = name; inp.setAttribute('list', 'memoryNames'); inp.placeholder = 'a memory';
+      inp.onchange = () => { const l = list(); if (i < l.length) l[i] = inp.value.trim(); else l.push(inp.value.trim()); setVal(rec.ref, sh, l.filter(Boolean).join(', ')); drawMems(); };
+      const x = el('button', 'xbtn'); x.textContent = '×';
+      x.onclick = () => { const l = list(); l.splice(i, 1); setVal(rec.ref, sh, l.join(', ')); drawMems(); };
+      row.append(inp, x);
+      memBox.appendChild(row);
+    });
+  };
+  drawMems();
+  const addM = el('button', 'btn small addbtn'); addM.textContent = '+ Add memory';
+  addM.onclick = () => { const row = el('div', 'listrow'); const inp = el('input'); inp.type = 'text'; inp.setAttribute('list', 'memoryNames'); inp.placeholder = 'a memory';
+    inp.onchange = () => { if (inp.value.trim()) { setVal(rec.ref, sh, [...list(), inp.value.trim()].join(', ')); drawMems(); } };
+    row.appendChild(inp); memBox.appendChild(row); inp.focus(); };
+  right.appendChild(addM);
+  right.appendChild(textField(rec, 'random memories', 'Random memories', { number: true, hint: '(as well, all different)' }, used));
+  cols.append(left, right);
+  st.appendChild(cols);
+
+  // actions (up to 3, each a banner in the HUD) and passives
+  const banners = R.AD.files.filter(x => /^banner_.*\.png$/.test(x)).map(x => x.slice(7, -4));
+  const acts = fieldset(form, 'Actions');
+  const actCols = [1, 2, 3].map(i => HR(rec, 'action ' + i) || 'action ' + i);
+  actCols.forEach(h => used.add(h));
+  const filledActs = actCols.filter(h => String(rec.cur[h] ?? '').trim()).length;
+  const showActs = Math.max(1, filledActs, S.extraActs && S.extraActs.ref === rec.ref ? S.extraActs.n : 0);
+  for (let i = 0; i < Math.min(3, showActs); i++) {
+    const h = actCols[i];
+    const a = parseAction(rec.cur[h]);
+    const box = el('div', 'tile-ed');
+    const top2 = el('div', 'top');
+    const nm = el('input'); nm.type = 'text'; nm.value = a.name; nm.placeholder = 'Name (e.g. Dig)';
+    const bsel = el('select');
+    for (const b of banners) { const o = el('option'); o.value = b; o.textContent = b; bsel.appendChild(o); }
+    bsel.value = a.banner || 'spiral';
+    const ic = el('div', 'pickicon');
+    const drawIc = () => { ic.innerHTML = ''; ic.appendChild(img(`banner_${bsel.value}.png`)); };
+    drawIc();
+    const ta = el('textarea'); ta.value = a.text; ta.placeholder = 'What it does (costs 1 action)';
+    const write = () => { a.name = nm.value; a.banner = bsel.value; a.text = ta.value; setVal(rec.ref, h, writeAction(a)); };
+    nm.oninput = write; ta.oninput = write; bsel.onchange = () => { drawIc(); write(); };
+    top2.append(ic, nm, bsel);
+    if (showActs > 1) { const x = el('button', 'xbtn'); x.textContent = '×'; x.onclick = () => {
+      const vals = actCols.map(c => String((record(rec.ref) || rec).cur[c] ?? '')); vals.splice(i, 1); vals.push('');
+      actCols.forEach((c, k) => { if (String((record(rec.ref) || rec).cur[c] ?? '') !== vals[k]) setVal(rec.ref, c, vals[k]); });
+      if (S.extraActs && S.extraActs.ref === rec.ref) S.extraActs.n--; renderForm(); }; top2.appendChild(x); }
+    box.append(top2, ta);
+    acts.appendChild(box);
+  }
+  if (showActs < 3) { const add = el('button', 'btn small addbtn'); add.textContent = '+ Add action'; add.onclick = () => { S.extraActs = { ref: rec.ref, n: showActs + 1 }; renderForm(); }; acts.appendChild(add); }
+
+  const pas = fieldset(form, 'Passives');
+  const pasCols = [1, 2, 3].map(i => HR(rec, 'passive ' + i) || 'passive ' + i);
+  pasCols.forEach(h => used.add(h));
+  const filledPas = pasCols.filter(h => String(rec.cur[h] ?? '').trim()).length;
+  const showPas = Math.max(filledPas, S.extraPas && S.extraPas.ref === rec.ref ? S.extraPas.n : 0);
+  for (let i = 0; i < Math.min(3, showPas); i++) {
+    const h = pasCols[i];
+    const a = parseAction(rec.cur[h]);
+    const box = el('div', 'tile-ed');
+    const nm = el('input'); nm.type = 'text'; nm.value = a.name; nm.placeholder = 'Name (e.g. Vanish)';
+    const ta = el('textarea'); ta.value = a.text; ta.placeholder = 'What it does, all the time';
+    const write = () => { a.name = nm.value; a.text = ta.value; setVal(rec.ref, h, writePassive(a)); };
+    nm.oninput = write; ta.oninput = write;
+    const top2 = el('div', 'top'); top2.appendChild(nm);
+    const x = el('button', 'xbtn'); x.textContent = '×'; x.onclick = () => {
+      const vals = pasCols.map(c => String((record(rec.ref) || rec).cur[c] ?? '')); vals.splice(i, 1); vals.push('');
+      pasCols.forEach((c, k) => { if (String((record(rec.ref) || rec).cur[c] ?? '') !== vals[k]) setVal(rec.ref, c, vals[k]); });
+      if (S.extraPas && S.extraPas.ref === rec.ref) S.extraPas.n--; renderForm(); };
+    top2.appendChild(x);
+    box.append(top2, ta);
+    pas.appendChild(box);
+  }
+  if (showPas < 3) { const add = el('button', 'btn small addbtn'); add.textContent = '+ Add passive'; add.onclick = () => { S.extraPas = { ref: rec.ref, n: showPas + 1 }; renderForm(); }; pas.appendChild(add); }
+
+  const other = otherInfo(form);
+  other.appendChild(textField(rec, 'id', 'Id', {}, used));
+  other.appendChild(textField(rec, 'text', 'In-game summary', { area: true, rows: 2 }, used));
+  other.appendChild(textField(rec, 'artwork', 'Artwork notes', {}, used));
+}
+
+function previewMask(stage, rec) {
+  const f = `mask_${val(rec, 'mask').trim()}.png`;
+  const wrap = el('div', 'mask-pv');
+  const pic = el('div', 'mask-pic');
+  pic.appendChild(img(R.has(f) ? f : 'mask_blank.png'));
+  wrap.appendChild(pic);
+  const name = el('div', 'mask-name'); name.textContent = val(rec, 'name').toUpperCase(); wrap.appendChild(name);
+  if (val(rec, 'flavor')) { const fl = el('div', 'mask-flavor'); fl.textContent = val(rec, 'flavor'); wrap.appendChild(fl); }
+  const attrs = el('div', 'gchips');
+  for (const a of ['charm', 'grit', 'insight', 'guile']) {
+    const n = Number(val(rec, a)) || 0; if (!n) continue;
+    const b = el('div', 'gattr'); b.appendChild(img(`ico_${a}.png`, { position: 'absolute', left: 0, top: 0, width: '40px', height: '40px' }));
+    const num = el('div', 'gattrnum'); num.textContent = '+' + n; b.appendChild(num); attrs.appendChild(b);
+  }
+  if (attrs.children.length) wrap.appendChild(attrs);
+  const acts = el('div', 'mask-acts');
+  for (const i of [1, 2, 3]) {
+    const a = parseAction(val(rec, 'action ' + i));
+    if (!a.name && !a.text) continue;
+    const c = el('div', 'mask-act');
+    const bf = `banner_${a.banner || 'spiral'}.png`;
+    c.appendChild(img(R.has(bf) ? bf : 'banner_spiral.png'));
+    const t = el('div'); t.innerHTML = `<b>${esc(a.name)}</b><span>${R.iconText(a.text, 16)}</span>`;
+    c.appendChild(t);
+    acts.appendChild(c);
+  }
+  wrap.appendChild(acts);
+  stage.appendChild(wrap);
+  const notes = el('div', 'pv-notes');
+  const bits = [];
+  for (const i of [1, 2, 3]) { const p = parseAction(val(rec, 'passive ' + i)); if (p.name || p.text) bits.push(`<div class="glos"><b>${esc(p.name)}</b> (passive) — ${R.iconText(p.text, 16)}</div>`); }
+  const mems = val(rec, 'starting memories').split(',').map(x => x.trim()).filter(Boolean);
+  const rnd = Number(val(rec, 'random memories')) || 0;
+  bits.push(`<h4>You start with</h4><p>${mems.map(esc).join(', ') || 'no set memories'}${rnd ? `, and ${rnd} random memor${rnd === 1 ? 'y' : 'ies'}` : ''}.</p>`);
+  notes.innerHTML = bits.join('');
+  stage.appendChild(notes);
+  // the starting memories, as cards
+  const row = el('div', 'mask-cards');
+  stage.appendChild(row);
+  for (const n of mems) {
+    const r = records('Memories').find(x => val(x, 'name').trim().toLowerCase() === n.toLowerCase());
+    if (r) { const card = R.memoryCard(memoryModel(r)); row.appendChild(scaledCard(card, 0.62)); R.layoutCard(card); }
+    else { const builtin = (R.AD.builtinMemories || {})[n]; const card = R.memoryCard({ id: builtin || '', name: n, attributes: {}, runes: [], tiles: [], dice: 0 }); row.appendChild(scaledCard(card, 0.62)); R.layoutCard(card); }
+  }
+}
+
 // --- keywords & runes ---
 
 function symbolPicker(rec, used, extra) {
@@ -1350,6 +1577,67 @@ function parseRequirements(text) {
   });
 }
 const writeRequirements = list => list.filter(r => r.text.trim()).map(r => `${r.never ? 'Never if' : 'Only if'}: ${r.text.trim()}`).join('\n');
+
+// ----- unlock (an achievement) -------------------------------------------------------------------------
+
+/** "Achievement: Name / Description: ... / How: ... / Mystery: yes", one per line (as the game reads it). */
+function parseUnlock(text) {
+  const u = { name: '', description: '', how: '', mystery: false };
+  let key = null;
+  for (const raw of String(text || '').split('\n')) {
+    const m = raw.match(/^\s*(achievement|name|description|how|mystery)\s*:\s*(.*)$/i);
+    if (m) { key = m[1].toLowerCase(); if (key === 'achievement') key = 'name'; }
+    if (!key) continue;
+    const v = m ? m[2] : '\n' + raw;
+    if (key === 'mystery') u.mystery = /^(y|yes|true|1|x)$/i.test(v.trim());
+    else u[key] = (u[key] + v);
+  }
+  for (const k of ['name', 'description', 'how']) u[k] = u[k].trim();
+  return u;
+}
+const writeUnlock = u => !u.name.trim() && !u.description.trim() && !u.how.trim() ? ''
+  : [`Achievement: ${u.name.trim()}`, `Description: ${u.description.trim()}`, `How: ${u.how.trim()}`, `Mystery: ${u.mystery ? 'yes' : 'no'}`].join('\n');
+
+function openUnlock(ref) {
+  const rec = record(real(ref));
+  const u = parseUnlock(val(rec, 'unlock'));
+  let d = document.getElementById('reqDialog');
+  if (d) d.remove();
+  d = el('dialog'); d.id = 'reqDialog';
+  d.innerHTML = `<h3>Unlock condition</h3><p class="dim">An achievement unlocks this: until you've done it, <b>${esc(itemTitle(rec))}</b>
+    never turns up. It's listed under Achievements on the game's home screen.</p>`;
+  const save = () => setVal(real(ref), 'unlock', writeUnlock(u));
+  const field = (label, key, area, ph) => {
+    const f = el('div', 'f');
+    f.innerHTML = `<label>${label}</label>`;
+    const inp = area ? el('textarea') : el('input');
+    if (!area) inp.type = 'text'; else inp.rows = 2;
+    inp.value = u[key]; inp.placeholder = ph;
+    inp.oninput = () => { u[key] = inp.value; save(); };
+    f.appendChild(inp);
+    d.appendChild(f);
+    return inp;
+  };
+  const first = field('Achievement name', 'name', false, 'e.g. The Long Walk');
+  field('Description <span class="hint">(what the player reads)</span>', 'description', true, 'e.g. Reach the deepest glimpse.');
+  field('How you unlock it <span class="hint">(exactly what has to happen; the game is made to check this)</span>', 'how', true, 'e.g. reach depth 12 in any run');
+  const my = el('label', 'check');
+  const cb = el('input'); cb.type = 'checkbox'; cb.checked = u.mystery;
+  cb.onchange = () => { u.mystery = cb.checked; save(); };
+  my.append(cb, document.createTextNode(' Mystery: only its name shows until it\'s done (the description reads ???)'));
+  d.appendChild(my);
+  const actions = el('div', 'actions');
+  const rm = el('button', 'btn small danger'); rm.textContent = 'No unlock (always available)';
+  rm.onclick = () => { u.name = u.description = u.how = ''; u.mystery = false; save(); d.close(); };
+  const done = el('button', 'btn primary'); done.textContent = 'Done';
+  done.onclick = () => d.close();
+  actions.append(rm, el('span', null, { flex: 1 }), done);
+  d.appendChild(actions);
+  d.addEventListener('close', () => { d.remove(); renderForm(); refreshListItem(real(ref)); });
+  document.body.appendChild(d);
+  d.showModal();
+  first.focus();
+}
 
 function openRequirements(ref) {
   const rec = record(real(ref));
@@ -1433,8 +1721,8 @@ function renderPreview() {
   const ref = currentRef();
   const rec = ref && record(ref);
   if (!rec) return;
-  const pv = { Memories: previewMemory, Glimpses: previewGlimpse, Encounters: previewEncounter, Keywords: previewKeyword, Runes: previewRune };
-  lab.firstChild.textContent = { Memories: 'As a card in the ring', Glimpses: 'As a glimpse to choose', Encounters: 'As the fight shows it', Keywords: 'On an ability tile', Runes: 'On a card' }[rec.tab];
+  const pv = { Memories: previewMemory, Glimpses: previewGlimpse, Encounters: previewEncounter, Keywords: previewKeyword, Runes: previewRune, Masks: previewMask };
+  lab.firstChild.textContent = { Memories: 'As a card in the ring', Glimpses: 'As a glimpse to choose', Encounters: 'As the fight shows it', Keywords: 'On an ability tile', Runes: 'On a card', Masks: 'As you choose it' }[rec.tab];
   pv[rec.tab](stage, rec);
 }
 
