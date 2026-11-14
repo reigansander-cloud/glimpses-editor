@@ -13,7 +13,7 @@
  *      Saving sets the row's Status to "Update" (Idea and Delete rows keep theirs) unless status is given.
  */
 
-var EDITOR_TABS = ['Memories', 'Glimpses', 'Encounters', 'Keywords', 'Runes', 'Masks', 'Abilities'];
+var EDITOR_TABS = ['Memoriams', 'Glimpses', 'Encounters', 'Keywords', 'Runes', 'Masks', 'Abilities'];
 
 function editorKey_() {
   var props = PropertiesService.getScriptProperties();
@@ -197,7 +197,7 @@ function editorAddColumn_(sh, header) {
 function editorNewTab_(ss, name, headers) {
   var sh = ss.insertSheet(name);
   sh.getRange(1, 1, 1, headers.length).setValues([headers]);
-  var like = ss.getSheetByName('Memories');
+  var like = (ss.getSheetByName('Memoriams') || ss.getSheetByName('Memories'));
   if (like) like.getRange(1, 1, 1, 1).copyTo(sh.getRange(1, 1, 1, headers.length), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
   else sh.getRange(1, 1, 1, headers.length).setFontWeight('bold');
   sh.setFrozenRows(1);

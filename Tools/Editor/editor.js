@@ -11,7 +11,7 @@ const STATUS_COLOR = { Good: '#c9ebc4', Update: '#ffe29a', Delete: '#f5b5ae', Id
 const GLIMPSE_COLORS = ['red', 'gold', 'brown', 'purple', 'green', 'sand', 'orange', 'blue'];
 
 const TABS = {
-  Memories: { title: 'name', sub: null, match: 'name', newValues: { name: 'New Memory' }, label: 'Memories' },
+  Memories: { title: 'name', sub: null, match: 'name', newValues: { name: 'New Memoriam' }, label: 'Memoriams' },
   Glimpses: { title: 'title', sub: 'id', match: 'id', newValues: { title: 'New Glimpse', kind: 'effects', status: 'Idea' }, label: 'Glimpses' },
   Encounters: { title: 'name', sub: 'id', match: 'id', newValues: { name: 'New Encounter' }, label: 'Encounters' },
   Keywords: { title: 'name', sub: 'id', match: 'id', newValues: { name: 'New Keyword' }, label: 'Keywords' },
@@ -262,9 +262,9 @@ function glimpseModel(rec) {
   if (!GLIMPSE_COLORS.includes(color))
     color = kind === 'encounter' ? 'red' : kind === 'memory' ? 'purple' : picks ? 'orange' : /check/i.test(val(rec, 'effects')) ? 'blue'
       : /heal/i.test(text) ? 'green' : val(rec, 'cost').trim() ? 'gold' : 'sand';
-  const label = kind === 'encounter' ? 'FIGHT' : kind === 'memory' ? 'NEW MEMORY' : picks ? 'TAMPER' : 'EVENT';
+  const label = kind === 'encounter' ? 'FIGHT' : kind === 'memory' ? 'NEW MEMORIAM' : picks ? 'TAMPER' : 'EVENT';
   const hint = kind === 'memory' ? 'Hover to see it, right-click to look closely. Drag it into a gap in the ring, or click then pick a gap.'
-    : picks ? 'Drag it onto a memory, or click then pick one.' : 'Click to choose.';
+    : picks ? 'Drag it onto a memoriam, or click then pick one.' : 'Click to choose.';
   const info = val(rec, 'info line').trim();
   return { color, kind: info ? info.toUpperCase() : label, title: val(rec, 'title'), text: kind === 'memory' ? '' : text, hint };
 }
@@ -313,8 +313,43 @@ function encounterModel(rec) {
 
 // ----- sheet link ---------------------------------------------------------------------------------------
 
+// Memories are called Memoriams on the sheet. Inside the editor tabs and columns keep their old names
+// ("Memories", "starting memories"...); these translate on the way in from the sheet and back out to it.
+const oldWords = s => String(s).replace(/\b([mM])emoriam(s?)\b/g, (m, a, pl) => a + (pl ? 'emories' : 'emory'));
+const REAL = { tabs: {}, heads: {} };   // the sheet's own names, by the editor's: REAL.tabs.Memories = 'Memoriams'
+function fromSheet(json) {
+  if (json.tabs) {
+    const tabs = {};
+    for (const [name, t] of Object.entries(json.tabs)) {
+      const mine = oldWords(name);
+      REAL.tabs[mine] = name;
+      REAL.heads[mine] = {};
+      for (const h of t.headers || []) REAL.heads[mine][oldWords(h)] = h;
+      tabs[mine] = Object.assign({}, t, { headers: (t.headers || []).map(oldWords) });
+    }
+    json.tabs = tabs;
+  }
+  for (const r of json.results || []) {
+    if (!r.tab) continue;
+    r.tab = oldWords(r.tab);
+    if (r.headers) { REAL.heads[r.tab] = REAL.heads[r.tab] || {}; for (const h of r.headers) REAL.heads[r.tab][oldWords(h)] = h; r.headers = r.headers.map(oldWords); }
+  }
+  return json;
+}
+function toSheet(body) {
+  if (!body || !body.edits) return body;
+  const head = (tab, h) => (REAL.heads[tab] && REAL.heads[tab][h]) || h;
+  return Object.assign({}, body, { edits: body.edits.map(e => Object.assign({}, e, {
+    tab: REAL.tabs[e.tab] || e.tab,
+    values: Object.fromEntries(Object.entries(e.values || {}).map(([h, v]) => [head(e.tab, h), v])),
+    match: e.match ? { column: head(e.tab, e.match.column), value: e.match.value } : e.match,
+    headers: e.headers ? e.headers.map(h => head(e.tab, h)) : e.headers,
+  })) });
+}
+
 async function api(method, body) {
   if (!S.url || !S.key) throw new Error('Not linked to the sheet yet (⚙).');
+  body = toSheet(body);
   const res = method === 'GET'
     ? await fetch(S.url + (S.url.includes('?') ? '&' : '?') + 'key=' + encodeURIComponent(S.key), { redirect: 'follow' })
     : await fetch(S.url, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(Object.assign({ key: S.key }, body)) });
@@ -324,7 +359,7 @@ async function api(method, body) {
     throw new Error(/<html|<!doctype/i.test(text) ? 'The sheet answered with a web page instead of data. Is the web app deployed with "Who has access: Anyone"?' : 'The sheet sent something unreadable.');
   }
   if (!json.ok) throw new Error(json.error || 'The sheet said no.');
-  return json;
+  return fromSheet(json);
 }
 
 /** After a save or a background refresh: redraw everything except a form you're typing in. */
@@ -342,7 +377,7 @@ function refreshAfterSync() {
     renderPreview();
   } else {
     const where = document.querySelector('.where'), rec = record(ref);
-    if (where && rec) where.innerHTML = `<b>${rec.tab}</b> tab, row ${rec.row}` + (isDirty(rec) ? ' · saving soon…' : ' · saved');
+    if (where && rec) where.innerHTML = `<b>${REAL.tabs[rec.tab] || rec.tab}</b> tab, row ${rec.row}` + (isDirty(rec) ? ' · saving soon…' : ' · saved');
   }
 }
 /** What the form shows (to tell whether it needs drawing again). */
@@ -533,7 +568,7 @@ function itemSub2(rec) {
     }
     case 'Glimpses': return [val(rec, 'id'), val(rec, 'kind')].filter(Boolean).join(' · ');
     case 'Encounters': return [val(rec, 'id'), val(rec, 'depth') && 'depth ' + val(rec, 'depth')].filter(Boolean).join(' · ');
-    case 'Masks': return [val(rec, 'id'), (val(rec, 'starting memories').split(',').filter(x => x.trim()).length) + ' memories'].filter(Boolean).join(' · ');
+    case 'Masks': return [val(rec, 'id'), (val(rec, 'starting memories').split(',').filter(x => x.trim()).length) + ' memoriams'].filter(Boolean).join(' · ');
     default: return [val(rec, 'id'), val(rec, 'symbol')].filter(Boolean).join(' · ');
   }
 }
@@ -696,7 +731,7 @@ function renderForm() {
   form.appendChild(head);
   const where = el('div', 'where');
   where.innerHTML = rec.isNew ? 'New — goes to the bottom of the <b>' + rec.tab + '</b> tab' + (S.auto ? ' in a moment.' : ' when saved.')
-    : `<b>${rec.tab}</b> tab, row ${rec.row}` + (isDirty(rec) ? (S.auto ? ' · saving soon…' : ` · ${changedHeaders(rec).length} change(s) not saved`) : ' · saved');
+    : `<b>${REAL.tabs[rec.tab] || rec.tab}</b> tab, row ${rec.row}` + (isDirty(rec) ? (S.auto ? ' · saving soon…' : ` · ${changedHeaders(rec).length} change(s) not saved`) : ' · saved');
   form.appendChild(where);
 
   const builders = { Memories: memoryForm, Glimpses: glimpseForm, Encounters: encounterForm, Keywords: keywordForm, Runes: runeForm, Masks: maskForm };
@@ -824,7 +859,7 @@ function ensureDatalist(id, values) {
 // --- memories ---
 
 function memoryForm(form, rec, used) {
-  const top = fieldset(form, 'Memory');
+  const top = fieldset(form, 'Memoriam');
   top.appendChild(textField(rec, 'name', 'Name', { big: true }, used));
   top.appendChild(statusField(rec, used));
 
@@ -1045,7 +1080,7 @@ function tagsField(rec, used) {
 function glimpseForm(form, rec, used) {
   const top = fieldset(form, 'Glimpse');
   const m = glimpseModel(rec);
-  const defaultInfo = { encounter: 'Fight', memory: 'New Memory' }[val(rec, 'kind').toLowerCase()] || (/^(y|yes)/i.test(val(rec, 'player picks a memory')) ? 'Tamper' : 'Event');
+  const defaultInfo = { encounter: 'Fight', memory: 'New Memoriam' }[val(rec, 'kind').toLowerCase()] || (/^(y|yes)/i.test(val(rec, 'player picks a memory')) ? 'Tamper' : 'Event');
   top.appendChild(textField(rec, 'info line', 'Info line', { create: true, placeholder: defaultInfo, hint: '(the small line above the title, e.g. NEW MEMORY)' }, used));
   top.appendChild(textField(rec, 'title', 'Title', { big: true }, used));
   top.appendChild(statusField(rec, used));
@@ -1084,9 +1119,9 @@ function glimpseForm(form, rec, used) {
 
   const other = otherInfo(form);
   other.appendChild(textField(rec, 'id', 'Id', {}, used));
-  other.appendChild(selectField(rec, 'kind', 'Kind', [['effects', 'effects (an event)'], ['memory', 'memory (a new memory)'], ['encounter', 'encounter (a fight)']], used, { onchange: () => renderPreview() }));
+  other.appendChild(selectField(rec, 'kind', 'Kind', [['effects', 'effects (an event)'], ['memory', 'memoriam (a new memoriam)'], ['encounter', 'encounter (a fight)']], used, { onchange: () => renderPreview() }));
   other.appendChild(textField(rec, 'text', 'In-game text', { area: true, rows: 2 }, used));
-  other.appendChild(checkField(rec, 'player picks a memory', 'The player picks a memory for it (a “tamper”)', used));
+  other.appendChild(checkField(rec, 'player picks a memory', 'The player picks a memoriam for it (a “tamper”)', used));
   const r2 = el('div', 'row');
   r2.appendChild(textField(rec, 'cost', 'Cost', { placeholder: 'e.g. 1 bone' }, used));
   r2.appendChild(textField(rec, 'offered weight', 'Offered weight', { number: true }, used));
@@ -1292,7 +1327,7 @@ function encounterForm(form, rec, used) {
   other.appendChild(checkField(rec, 'boss', 'Boss', used));
   const r2 = el('div', 'row');
   r2.appendChild(textField(rec, 'music', 'Music', {}, used));
-  r2.appendChild(textField(rec, 'enemy memory', 'Enemy memory', {}, used));
+  r2.appendChild(textField(rec, 'enemy memory', 'Enemy memoriam', {}, used));
   other.appendChild(r2);
   other.appendChild(textField(rec, 'if the clock runs out', 'If the clock runs out', {}, used));
   other.appendChild(textField(rec, 'traits', 'Traits & rules (the game\'s text)', { area: true, rows: 2 }, used));
@@ -1372,7 +1407,7 @@ function maskForm(form, rec, used) {
   const left = el('div', 'statcol');
   attrSteppers(rec, used, left);
   const right = el('div');
-  right.innerHTML = '<div class="lbl">Starting memories</div>';
+  right.innerHTML = '<div class="lbl">Starting memoriams</div>';
   const memBox = el('div');
   right.appendChild(memBox);
   const list = () => String((record(rec.ref) || rec).cur[sh] ?? '').split(',').map(x => x.trim()).filter(Boolean);
@@ -1381,7 +1416,7 @@ function maskForm(form, rec, used) {
     const shown = list().length ? list() : [''];
     shown.forEach((name, i) => {
       const row = el('div', 'listrow');
-      const inp = el('input'); inp.type = 'text'; inp.value = name; inp.setAttribute('list', 'memoryNames'); inp.placeholder = 'a memory';
+      const inp = el('input'); inp.type = 'text'; inp.value = name; inp.setAttribute('list', 'memoryNames'); inp.placeholder = 'a memoriam';
       inp.onchange = () => { const l = list(); if (i < l.length) l[i] = inp.value.trim(); else l.push(inp.value.trim()); setVal(rec.ref, sh, l.filter(Boolean).join(', ')); drawMems(); };
       const x = el('button', 'xbtn'); x.textContent = '×';
       x.onclick = () => { const l = list(); l.splice(i, 1); setVal(rec.ref, sh, l.join(', ')); drawMems(); };
@@ -1390,12 +1425,12 @@ function maskForm(form, rec, used) {
     });
   };
   drawMems();
-  const addM = el('button', 'btn small addbtn'); addM.textContent = '+ Add memory';
-  addM.onclick = () => { const row = el('div', 'listrow'); const inp = el('input'); inp.type = 'text'; inp.setAttribute('list', 'memoryNames'); inp.placeholder = 'a memory';
+  const addM = el('button', 'btn small addbtn'); addM.textContent = '+ Add memoriam';
+  addM.onclick = () => { const row = el('div', 'listrow'); const inp = el('input'); inp.type = 'text'; inp.setAttribute('list', 'memoryNames'); inp.placeholder = 'a memoriam';
     inp.onchange = () => { if (inp.value.trim()) { setVal(rec.ref, sh, [...list(), inp.value.trim()].join(', ')); drawMems(); } };
     row.appendChild(inp); memBox.appendChild(row); inp.focus(); };
   right.appendChild(addM);
-  right.appendChild(textField(rec, 'random memories', 'Random memories', { number: true, hint: '(as well, all different)' }, used));
+  right.appendChild(textField(rec, 'random memories', 'Random memoriams', { number: true, hint: '(as well, all different)' }, used));
   cols.append(left, right);
   st.appendChild(cols);
 
@@ -1494,7 +1529,7 @@ function previewMask(stage, rec) {
   for (const i of [1, 2, 3]) { const p = parseAction(val(rec, 'passive ' + i)); if (p.name || p.text) bits.push(`<div class="glos"><b>${esc(p.name)}</b> (passive) — ${R.iconText(p.text, 16)}</div>`); }
   const mems = val(rec, 'starting memories').split(',').map(x => x.trim()).filter(Boolean);
   const rnd = Number(val(rec, 'random memories')) || 0;
-  bits.push(`<h4>You start with</h4><p>${mems.map(esc).join(', ') || 'no set memories'}${rnd ? `, and ${rnd} random memor${rnd === 1 ? 'y' : 'ies'}` : ''}.</p>`);
+  bits.push(`<h4>You start with</h4><p>${mems.map(esc).join(', ') || 'no set memoriams'}${rnd ? `, and ${rnd} random memoriam${rnd === 1 ? '' : 's'}` : ''}.</p>`);
   notes.innerHTML = bits.join('');
   stage.appendChild(notes);
   // the starting memories, as cards
@@ -1807,7 +1842,7 @@ function usedBy(test) {
 }
 function exampleList(stage, list, what, pick) {
   const notes = el('div', 'pv-notes');
-  notes.innerHTML = `<h4>Used by ${list.length} memor${list.length === 1 ? 'y' : 'ies'}</h4>`;
+  notes.innerHTML = `<h4>Used by ${list.length} memoriam${list.length === 1 ? '' : 's'}</h4>`;
   const p = el('p');
   list.slice(0, 40).forEach((r, i) => {
     const a = el('a'); a.href = '#'; a.textContent = itemTitle(r); a.style.color = 'var(--text)';
@@ -1816,7 +1851,7 @@ function exampleList(stage, list, what, pick) {
     p.appendChild(a);
   });
   if (list.length > 40) p.appendChild(document.createTextNode(` … and ${list.length - 40} more`));
-  if (!list.length) p.textContent = `No memory uses this ${what} yet.`;
+  if (!list.length) p.textContent = `No memoriam uses this ${what} yet.`;
   notes.appendChild(p);
   stage.appendChild(notes);
   if (list[0] && pick) {
