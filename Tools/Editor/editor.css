@@ -342,8 +342,3 @@ dialog .req-sec h4 { margin: 0 0 4px; font: 700 13px Cinzel, var(--serif); lette
 dialog .req-sec.unlock h4 { color: #e8a0bf; }
 dialog .req-sec p.dim { margin: 0 0 10px; }
 dialog#reqDialog { width: min(760px, 94vw); }
-/* ??? glimpses: white lettering on the pale gold glass, dark ink for the small print (as in the game) */
-.gglimpse.glass .gkind { color: #4d2b0f !important; text-shadow: none; }
-.gglimpse.glass .gltitle { color: #fffdf5; text-shadow: 0 0 2px #43260c, 0 1px 2px #43260c, 0 0 4px rgba(67,38,12,.7); }
-.gglimpse.glass .gltext { color: #4d2b0f; text-shadow: none; }
-.gglimpse.glass .glhint { color: rgba(77,43,15,.8); }
