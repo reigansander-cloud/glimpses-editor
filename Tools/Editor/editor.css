@@ -321,3 +321,16 @@ fieldset.enemy legend { color: #ef9d7e; }
 .choice-ed { border: 1px solid var(--line2); border-radius: 8px; padding: 8px 10px; margin: 8px 0; background: rgba(255,255,255,.02); }
 .choice-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; color: var(--gold); }
 fieldset.dialogue p.hint { color: var(--faint); font-size: 12px; margin: 0 0 6px; }
+
+/* ----- section colours: each kind of section its own tint (enemies stay red) ----- */
+.hue-gold   { --hb: #6e5531; --ht: #2a2116; --hl: #e3c27c; }
+.hue-blue   { --hb: #34506e; --ht: #17202b; --hl: #8fc6e0; }
+.hue-purple { --hb: #5a3f72; --ht: #211a2b; --hl: #c79be0; }
+.hue-teal   { --hb: #2f6260; --ht: #152423; --hl: #84d2c6; }
+.hue-rose   { --hb: #73405a; --ht: #2a1820; --hl: #e8a0bf; }
+.hue-green  { --hb: #3f6438; --ht: #19241a; --hl: #9ed493; }
+.hue-orange { --hb: #7a5025; --ht: #2b1f14; --hl: #f0ad6a; }
+.hue-slate  { --hb: #4a4a52; --ht: #1d1d21; --hl: #b4b0c0; }
+fieldset[class*="hue-"] { border-color: var(--hb); background: linear-gradient(var(--ht), var(--panel) 160px); }
+fieldset[class*="hue-"] > legend { color: var(--hl); }
+details.more[class*="hue-"] > summary { color: var(--hl); }

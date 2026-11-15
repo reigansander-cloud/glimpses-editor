@@ -9,6 +9,8 @@ const STORE = 'glimpsesEditor.v1';
 const STATUSES = ['Good', 'Update', 'Idea', 'Delete'];
 const STATUS_COLOR = { Good: '#c9ebc4', Update: '#ffe29a', Delete: '#f5b5ae', Idea: '#dcd3f5' };
 const GLIMPSE_COLORS = ['red', 'gold', 'brown', 'purple', 'green', 'sand', 'orange', 'blue'];
+/** A glimpse's colour says what sort it is (shown above its title in the game). Keep in step with ChoiceGenerator.TypeOf. */
+const GLIMPSE_TYPES = { red: 'Danger', gold: 'Mortal Danger', brown: 'Oddity', purple: 'Respite', green: 'Connection', sand: '???', orange: 'Bargain', blue: 'Prophecy' };
 
 const TABS = {
   Memories: { title: 'name', sub: null, match: 'name', newValues: { name: 'New Memoriam' }, label: 'Memoriams' },
@@ -275,8 +277,7 @@ function glimpseModel(rec) {
   const label = kind === 'encounter' ? 'FIGHT' : kind === 'memory' ? 'NEW MEMORIAM' : picks ? 'TAMPER' : 'EVENT';
   const hint = kind === 'memory' ? 'Hover to see it, right-click to look closely. Drag it into a gap in the ring, or click then pick a gap.'
     : picks ? 'Drag it onto a memoriam, or click then pick one.' : 'Click to choose.';
-  const info = val(rec, 'info line').trim();
-  return { color, kind: info ? info.toUpperCase() : label, title: val(rec, 'title'), text: kind === 'memory' ? '' : text, hint };
+  return { color, kind: (GLIMPSE_TYPES[color] || label).toUpperCase(), title: val(rec, 'title'), text: kind === 'memory' ? '' : text, hint };
 }
 
 /** "Hollow Pilgrim: 12 aggression; Lantern Moth (each): 6 aggression" → the part for one enemy. */
@@ -804,16 +805,25 @@ function welcome() {
   return w;
 }
 
+/** Each kind of section has its own colour, so they stand apart (enemies are red). */
+const SECTION_HUES = {
+  'memoriam': 'gold', 'glimpse': 'gold', 'encounter': 'gold', 'mask': 'gold', 'action card': 'gold', 'keyword': 'gold', 'rune': 'gold',
+  'attributes & runes': 'blue', 'ability tiles': 'purple', 'start, dice & notes': 'teal',
+  'type': 'rose', 'look': 'rose', 'look & words': 'rose',
+  'dialogue': 'blue', 'what it does': 'green', 'passives': 'green',
+  'start of a run': 'teal', 'action cards': 'orange', 'other info': 'slate',
+};
 function fieldset(parent, legend, collapsed) {
+  const hue = 'hue-' + (SECTION_HUES[legend.toLowerCase()] || 'slate');
   if (collapsed) {
-    const d = el('details', 'more');
+    const d = el('details', 'more ' + hue);
     d.innerHTML = `<summary>${esc(legend)}</summary>`;
-    const fs = el('fieldset');
+    const fs = el('fieldset', hue);
     d.appendChild(fs);
     parent.appendChild(d);
     return fs;
   }
-  const fs = el('fieldset');
+  const fs = el('fieldset', hue);
   fs.innerHTML = `<legend>${esc(legend)}</legend>`;
   parent.appendChild(fs);
   return fs;
@@ -1235,13 +1245,12 @@ function dialogueSection(form, rec, used) {
 function glimpseForm(form, rec, used) {
   const top = fieldset(form, 'Glimpse');
   const kindNow = String(val(rec, 'kind')).toLowerCase();
-  const defaultInfo = { encounter: 'Fight', memory: 'New Memoriam' }[kindNow] || (/^(y|yes)/i.test(val(rec, 'player picks a memory')) ? 'Tamper' : 'Event');
-  top.appendChild(textField(rec, 'info line', 'Info line', { create: true, placeholder: defaultInfo, hint: '(the small line above the title)' }, used));
+  { const x = H(rec.tab, 'info line'); if (x) used.add(x); }   // (no longer used: the colour decides the line above the title)
   top.appendChild(textField(rec, 'title', 'Title', { big: true }, used));
   top.appendChild(textField(rec, 'text', 'Description', { area: true, rows: 2, create: true, hint: '(the smaller text on the choice tile)' }, used));
   top.appendChild(statusField(rec, used));
 
-  const look = fieldset(form, 'Colour');
+  const look = fieldset(form, 'Type');
   const h = H(rec.tab, 'colour');
   if (h) {
     used.add(h);
@@ -1257,7 +1266,8 @@ function glimpseForm(form, rec, used) {
       for (const c of GLIMPSE_COLORS) {
         const b = el('button', 'swatch' + (cur === c ? ' on' : ''));
         b.style.backgroundImage = `url("${R.artUrl('btn_' + c + '.png')}")`;
-        b.textContent = c;
+        b.textContent = GLIMPSE_TYPES[c];
+        b.title = c;
         b.onclick = () => { setVal(rec.ref, h, c); draw(); };
         sw.appendChild(b);
       }
@@ -1417,8 +1427,15 @@ function encounterForm(form, rec, used) {
   const r = el('div', 'row');
   r.appendChild(textField(rec, 'depth', 'Depth', { placeholder: '1–4' }, used));
   r.appendChild(textField(rec, 'how often', 'Weight', { number: true, hint: '(how often)' }, used));
-  r.appendChild(textField(rec, 'rounds', 'Rounds', { hint: '(timed fight)' }, used));
+  const roundsF = textField(rec, 'rounds', 'Rounds', { hint: '(timed fight)' }, used);
+  r.appendChild(roundsF);
   top.appendChild(r);
+  // what happens when a timed fight's rounds run out: only once it has a round limit
+  const clock = textField(rec, 'if the clock runs out', 'If the clock runs out', { create: true, area: true, rows: 2, placeholder: 'The enemies leave. No rewards.' }, used);
+  top.appendChild(clock);
+  const showClock = () => { clock.style.display = String(val(record(rec.ref) || rec, 'rounds')).trim() ? '' : 'none'; };
+  showClock();
+  const ri = roundsF.querySelector('input'); if (ri) ri.addEventListener('input', showClock);
   top.appendChild(statusField(rec, used));
 
   for (const k of ['enemies', 'intents', 'what they do', ...BAR_TYPES.flatMap(b => [b.need, b.reward])]) { const h = HR(rec, k); if (h) used.add(h); }
@@ -1534,7 +1551,6 @@ function encounterForm(form, rec, used) {
   r2.appendChild(textField(rec, 'music', 'Music', {}, used));
   r2.appendChild(textField(rec, 'enemy memory', 'Enemy memoriam', {}, used));
   other.appendChild(r2);
-  other.appendChild(textField(rec, 'if the clock runs out', 'If the clock runs out', {}, used));
   other.appendChild(textField(rec, 'traits', 'Traits & rules (the game\'s text)', { area: true, rows: 2 }, used));
   other.appendChild(textField(rec, 'notes', 'Notes / flavour', { area: true }, used));
   other.appendChild(textField(rec, 'artwork', 'Artwork notes', {}, used));
@@ -2120,7 +2136,7 @@ function previewGlimpse(stage, rec) {
   stage.appendChild(wrap);
   R.layoutGlimpse(card);
   const notes = el('div', 'pv-notes');
-  const bits = [`<p><b>${esc(g.kind)}</b> · ${esc(g.color)}${GLIMPSE_COLORS.includes(val(rec, 'colour').toLowerCase()) ? '' : ' (picked automatically)'}</p>`];
+  const bits = [`<p><b>${esc(g.kind)}</b> · ${esc(g.color)}${GLIMPSE_COLORS.includes(val(rec, 'colour').toLowerCase()) ? '' : ' (type picked automatically)'}</p>`];
   const w = val(rec, 'offered weight'), from = val(rec, 'from depth'), to = val(rec, 'to depth');
   bits.push(`<p>Offered weight ${esc(w || '1')}${from || to ? ` · depths ${esc(from || 'any')}–${esc(to || 'any')}` : ''}${val(rec, 'cost') ? ' · costs ' + esc(val(rec, 'cost')) : ''}</p>`);
   if (val(rec, 'kind').toLowerCase() === 'choices') {
