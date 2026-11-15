@@ -216,7 +216,9 @@ function tileView(text) {
   if (!p.text) return null;
   if (p.kind === 'bar') return { text: p.body, icon: null, manual: false, bar: { stat: p.stat, need: Number(p.n) || 0 }, parsed: p };
   if (p.kind === 'at_least') return { text: p.text, icon: null, manual: false, parsed: p };
+  // Land (and an old Action, which is a Land now): the gold tile, no symbol
   if (p.kind === 'action') return { text: p.body, icon: null, manual: true, parsed: p };
+  if (p.kind === 'kw' && p.kw.id.toLowerCase() === 'scatter_ends_here') return { text: p.body, icon: null, manual: true, parsed: p };
   if (p.kind === 'passive') return { text: p.body, icon: null, manual: false, parsed: p };
   if (p.kind === 'kw') return { text: p.body, icon: keywordIcon(p.kw), manual: false, parsed: p };
   return { text: p.text, icon: null, manual: false, parsed: p };
@@ -1001,7 +1003,9 @@ function tileEditor(rec, h, label, onRemove) {
   const top = el('div', 'top');
   top.innerHTML = `<span class="lbl">${esc(label)}</span>`;
   const kwSel = el('select');
-  const opts = [['none', 'No keyword — just text'], ['action', 'Action — click to use (1 action)'], ['passive', 'Passive']];
+  // (memoriams have no Actions any more: the mask's action cards are the actions; an old "Action:" tile works as Land)
+  const opts = [['none', 'No keyword — just text'], ['passive', 'Passive']];
+  if (p.kind === 'action') opts.push(['action', 'Action (old — works as Land now)']);
   for (const k of keywordRows()) {
     const id = k.id.toLowerCase();
     if (['active', 'action', 'passive', 'at_least', 'bar'].includes(id)) continue;
@@ -1441,8 +1445,11 @@ function maskForm(form, rec, used) {
   cols.append(left, right);
   st.appendChild(cols);
 
-  // actions (up to 3, each a banner in the HUD) and passives
-  const banners = R.AD.files.filter(x => /^banner_.*\.png$/.test(x)).map(x => x.slice(7, -4));
+  // actions (up to 3, each a card along the bottom of the screen) and passives
+  const cardArts = R.AD.files.filter(x => /^action_.*\.png$/.test(x)).map(x => x.slice(7, -4));
+  const cardOf = b => { b = String(b || '').trim().toLowerCase(); if (b === 'arch') b = 'ruins'; return cardArts.includes(b) ? b : 'spiral'; };
+  const usedArts = new Set();
+  for (const r of records('Masks')) for (const i of [1, 2, 3]) { const x = parseAction(val(r, 'action ' + i)); if (x.name || x.text) usedArts.add(cardOf(x.banner)); }
   const acts = fieldset(form, 'Actions');
   const actCols = [1, 2, 3].map(i => HR(rec, 'action ' + i) || 'action ' + i);
   actCols.forEach(h => used.add(h));
@@ -1454,21 +1461,33 @@ function maskForm(form, rec, used) {
     const box = el('div', 'tile-ed');
     const top2 = el('div', 'top');
     const nm = el('input'); nm.type = 'text'; nm.value = a.name; nm.placeholder = 'Name (e.g. Dig)';
-    const bsel = el('select');
-    for (const b of banners) { const o = el('option'); o.value = b; o.textContent = b; bsel.appendChild(o); }
-    bsel.value = a.banner || 'spiral';
+    a.banner = cardOf(a.banner);
     const ic = el('div', 'pickicon');
-    const drawIc = () => { ic.innerHTML = ''; ic.appendChild(img(`banner_${bsel.value}.png`)); };
+    const drawIc = () => { ic.innerHTML = ''; ic.appendChild(img(`action_${a.banner}.png`)); };
     drawIc();
     const ta = el('textarea'); ta.value = a.text; ta.placeholder = 'What it does (costs 1 action)';
-    const write = () => { a.name = nm.value; a.banner = bsel.value; a.text = ta.value; setVal(rec.ref, h, writeAction(a)); };
-    nm.oninput = write; ta.oninput = write; bsel.onchange = () => { drawIc(); write(); };
-    top2.append(ic, nm, bsel);
+    const write = () => { a.name = nm.value; a.text = ta.value; setVal(rec.ref, h, writeAction(a)); };
+    nm.oninput = write; ta.oninput = write;
+    // its card's picture: this one, then the ones no mask uses yet, then the rest (dimmed: another mask has it)
+    const grid = el('div', 'glyphs cards');
+    const drawPics = () => {
+      grid.innerHTML = '';
+      const order = [a.banner, ...cardArts.filter(x => x !== a.banner && !usedArts.has(x)), ...cardArts.filter(x => x !== a.banner && usedArts.has(x))];
+      for (const name of order) {
+        const b = el('button', 'glyph' + (name === a.banner ? ' on' : '') + (name !== a.banner && usedArts.has(name) ? ' taken' : ''));
+        b.title = name + (name !== a.banner && usedArts.has(name) ? ' (another action has it)' : '');
+        b.appendChild(img(`action_${name}.png`));
+        b.onclick = () => { a.banner = name; drawIc(); drawPics(); write(); };
+        grid.appendChild(b);
+      }
+    };
+    drawPics();
+    top2.append(ic, nm);
     if (showActs > 1) { const x = el('button', 'xbtn'); x.textContent = '×'; x.onclick = () => {
       const vals = actCols.map(c => String((record(rec.ref) || rec).cur[c] ?? '')); vals.splice(i, 1); vals.push('');
       actCols.forEach((c, k) => { if (String((record(rec.ref) || rec).cur[c] ?? '') !== vals[k]) setVal(rec.ref, c, vals[k]); });
       if (S.extraActs && S.extraActs.ref === rec.ref) S.extraActs.n--; renderForm(); }; top2.appendChild(x); }
-    box.append(top2, ta);
+    box.append(top2, ta, grid);
     acts.appendChild(box);
   }
   if (showActs < 3) { const add = el('button', 'btn small addbtn'); add.textContent = '+ Add action'; add.onclick = () => { S.extraActs = { ref: rec.ref, n: showActs + 1 }; renderForm(); }; acts.appendChild(add); }
@@ -1523,8 +1542,9 @@ function previewMask(stage, rec) {
     const a = parseAction(val(rec, 'action ' + i));
     if (!a.name && !a.text) continue;
     const c = el('div', 'mask-act');
-    const bf = `banner_${a.banner || 'spiral'}.png`;
-    c.appendChild(img(R.has(bf) ? bf : 'banner_spiral.png'));
+    let bf = `action_${String(a.banner || 'spiral').trim().toLowerCase() === 'arch' ? 'ruins' : (a.banner || 'spiral').trim().toLowerCase()}.png`;
+    if (!R.has(bf)) bf = 'action_spiral.png';
+    c.appendChild(img(bf));
     const t = el('div'); t.innerHTML = `<b>${esc(a.name)}</b><span>${R.iconText(a.text, 16)}</span>`;
     c.appendChild(t);
     acts.appendChild(c);
