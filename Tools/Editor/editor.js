@@ -686,6 +686,21 @@ function currentRef() {
   return first ? first.ref : null;
 }
 
+/** The next free id in a tab: its prefix and one more than the highest number used (mem-401, glimpse_07...). */
+const ID_PREFIX = { Memories: 'mem-', Glimpses: 'glimpse_', Encounters: 'enc_', Keywords: 'keyword_', Runes: 'rune_', Masks: 'mask_', 'Action Cards': 'card_' };
+function nextId(tab) {
+  const prefix = ID_PREFIX[tab] || 'new_';
+  const idCol = H(tab, 'id');
+  const ids = [...tabData(tab).rows.map(r => String(rowObj(tab, r.cells)[idCol] ?? '')),
+               ...Object.values(S.drafts).filter(d => d.tab === tab).map(d => String(d.cur[idCol] ?? ''))];
+  let max = 0, width = prefix === 'mem-' ? 3 : 2;
+  for (const id of ids) {
+    const m = id.trim().toLowerCase().startsWith(prefix) && /^(\d+)$/.exec(id.trim().slice(prefix.length));
+    if (m) { max = Math.max(max, +m[1]); width = Math.max(width, m[1].length); }
+  }
+  return prefix + String(max + 1).padStart(width, '0');
+}
+
 function newItem(copyFrom) {
   if (!S.data) { openSetup(); return; }
   const tab = S.tab, ref = `${tab}:new${S.seq++}`;
@@ -695,9 +710,10 @@ function newItem(copyFrom) {
   if (copyFrom) {
     Object.assign(cur, copyFrom.cur);
     const t = H(tab, TABS[tab].title); if (t) cur[t] = cur[t] + ' (copy)';
-    const idH = H(tab, 'id'); if (idH && cur[idH]) cur[idH] = cur[idH] + '_copy';
     const st = H(tab, 'status'); if (st) cur[st] = '';
   } else for (const [k, v] of Object.entries(TABS[tab].newValues)) { const h = H(tab, k); if (h) cur[h] = v; }
+  const idCol = H(tab, 'id');
+  if (idCol) cur[idCol] = nextId(tab);   // every new one (copies too) gets the next free id
   S.drafts[ref] = { tab, row: 0, isNew: true, orig: blank, cur };
   S.sel[tab] = ref;
   S.status = 'all';
@@ -1136,6 +1152,9 @@ function writeChoices(rec, list) {
 
 function glimpseForm(form, rec, used) {
   const top = fieldset(form, 'Glimpse');
+  const kindNow = String(val(rec, 'kind')).toLowerCase();
+  const defaultInfo = { encounter: 'Fight', memory: 'New Memoriam' }[kindNow] || (/^(y|yes)/i.test(val(rec, 'player picks a memory')) ? 'Tamper' : 'Event');
+  top.appendChild(textField(rec, 'info line', 'Info line', { create: true, placeholder: defaultInfo, hint: '(the small line above the title)' }, used));
   top.appendChild(textField(rec, 'title', 'Title', { big: true }, used));
   top.appendChild(textField(rec, 'text', 'Description', { area: true, rows: 2, create: true, hint: '(the smaller text on the choice tile)' }, used));
   top.appendChild(statusField(rec, used));
@@ -1226,8 +1245,6 @@ function glimpseForm(form, rec, used) {
 
   const other = otherInfo(form);
   other.appendChild(selectField(rec, 'kind', 'Kind', [['effects', 'effects (an event)'], ['choices', 'choices (a prompt, then pick one)'], ['memory', 'memoriam (a new memoriam)'], ['encounter', 'encounter (a fight)']], used, { onchange: () => { drawWhat(); renderPreview(); } }));
-  const defaultInfo = { encounter: 'Fight', memory: 'New Memoriam' }[kind()] || (/^(y|yes)/i.test(val(rec, 'player picks a memory')) ? 'Tamper' : 'Event');
-  other.appendChild(textField(rec, 'info line', 'Info line', { create: true, placeholder: defaultInfo, hint: '(the small line above the title)' }, used));
   other.appendChild(textField(rec, 'id', 'Id', {}, used));
   const r2 = el('div', 'row');
   r2.appendChild(textField(rec, 'cost', 'Cost', { placeholder: 'e.g. 1 bone' }, used));
