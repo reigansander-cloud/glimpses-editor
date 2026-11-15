@@ -13,7 +13,7 @@
  *      Saving sets the row's Status to "Update" (Idea and Delete rows keep theirs) unless status is given.
  */
 
-var EDITOR_TABS = ['Memoriams', 'Glimpses', 'Encounters', 'Keywords', 'Runes', 'Masks', 'Abilities'];
+var EDITOR_TABS = ['Memoriams', 'Glimpses', 'Encounters', 'Keywords', 'Runes', 'Masks', 'Abilities', 'Action Cards'];
 
 function editorKey_() {
   var props = PropertiesService.getScriptProperties();

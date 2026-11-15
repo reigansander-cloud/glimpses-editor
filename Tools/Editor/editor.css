@@ -269,9 +269,21 @@ fieldset.enemy legend { color: #ef9d7e; }
 
 /* ----- masks ----- */
 .glyphs.masks { grid-template-columns: repeat(auto-fill, minmax(62px, 1fr)); max-height: 220px; }
-.glyphs.cards { grid-template-columns: repeat(auto-fill, minmax(48px, 1fr)); max-height: 170px; margin-top: 8px; }
-.glyphs.cards .glyph img { width: 100%; height: auto; aspect-ratio: 5 / 6; object-fit: contain; }
-.glyphs.cards .glyph.taken { opacity: .45; }
+.acard { position: relative; flex: none; }
+.acard > img { pointer-events: none; }
+.acard-name { position: absolute; left: 6%; right: 6%; text-align: center; font-family: Cinzel, var(--serif); font-weight: 700; color: #3d2112; white-space: nowrap; overflow: hidden; line-height: 1.2; }
+.thumb .acard { margin: 1px auto 0; }
+.card-picks { display: flex; flex-wrap: wrap; gap: 16px; }
+.card-pick { position: relative; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 14px 10px 8px; }
+.card-pick .pic { min-height: 129px; }
+.card-pick select { max-width: 140px; }
+.card-pick .xbtn { position: absolute; right: -6px; top: 0; }
+.ink-pick { display: flex; align-items: center; gap: 14px; }
+.ink-prev { width: 64px; height: 64px; border-radius: 8px; background: #e9d6ae; display: flex; align-items: center; justify-content: center; }
+.ink-prev img { max-width: 54px; max-height: 54px; }
+.acard-pv { display: flex; flex-direction: column; align-items: center; gap: 22px; padding: 30px 10px 10px; }
+.acard-pv .glossary { max-width: 340px; }
+.acard-pv .dim { color: #a99bb8; font-size: 13px; }
 .mask-pv { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 20px 0 6px; }
 .mask-pic { width: 230px; height: 260px; display: flex; align-items: center; justify-content: center;
   background: radial-gradient(closest-side, rgba(255,214,140,.32), rgba(255,190,110,.1) 55%, transparent); }
@@ -281,7 +293,7 @@ fieldset.enemy legend { color: #ef9d7e; }
 .mask-flavor { font: italic 15px var(--serif); color: #cdbb9b; }
 .mask-acts { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 6px; }
 .mask-act { width: 190px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 4px; }
-.mask-act img { width: 74px; height: 90px; object-fit: contain; filter: drop-shadow(0 4px 8px rgba(0,0,0,.6)); }
+.mask-act .acard { filter: drop-shadow(0 4px 8px rgba(0,0,0,.6)); margin-bottom: 4px; }
 .mask-act b { display: block; font: 700 15px Cinzel, var(--serif); color: var(--gold); }
 .mask-act span { font: 13px/1.35 var(--serif); color: #e0d1bd; }
 .mask-cards { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; width: 100%; }

@@ -17,7 +17,10 @@ const TABS = {
   Keywords: { title: 'name', sub: 'id', match: 'id', newValues: { name: 'New Keyword' }, label: 'Keywords' },
   Runes: { title: 'name', sub: 'id', match: 'name', newValues: { name: 'New Rune' }, label: 'Runes' },
   Masks: { title: 'name', sub: 'id', match: 'id', newValues: { name: 'New Mask' }, label: 'Masks' },
+  'Action Cards': { title: 'name', sub: 'id', match: 'id', newValues: { name: 'New Card', paper: 'plain', symbol: 'spiral', target: 'has_sight' }, label: 'Action Cards' },
 };
+/** The Action Cards tab's columns (it's made with these the first time a card is saved). */
+const CARD_HEADERS = ['status', 'id', 'name', 'symbol', 'paper', 'target', 'text', 'how it works', 'Mechanical Clarification'];
 /** What the Unlock (achievement) button is on; Requirements are on all of these but masks. */
 const UNLOCKABLE = ['Memories', 'Glimpses', 'Encounters', 'Masks'];
 
@@ -50,7 +53,7 @@ function saveStore(now) {
 
 // ----- sheet rows ----------------------------------------------------------------------------------------
 
-const tabData = tab => (S.data && S.data.tabs && S.data.tabs[tab]) || { headers: [], rows: [] };
+const tabData = tab => (S.data && S.data.tabs && S.data.tabs[tab]) || { headers: tab === 'Action Cards' ? [...CARD_HEADERS] : [], rows: [] };
 /** The real header for a column name ("offered weight" finds "offered weight (1 if empty)"). */
 function H(tab, key) {
   const hs = tabData(tab).headers, k = key.toLowerCase();
@@ -454,7 +457,9 @@ async function save(refs, auto) {
     const status = statusH && String(rec.cur[statusH] ?? '') !== String(rec.orig[statusH] ?? '') ? rec.cur[statusH] : (rec.isNew && statusH && rec.cur[statusH]) || '';
     let matchH = H(rec.tab, cfg.match);
     if (matchH && !String(rec.orig[matchH] ?? '').trim()) matchH = H(rec.tab, 'name') || H(rec.tab, 'title');
-    return { ref, tab: rec.tab, row: rec.isNew ? 0 : rec.row, match: rec.isNew || !matchH ? null : { column: matchH, value: rec.orig[matchH] }, values, status, sent: { ...rec.cur } };
+    // (a tab the sheet doesn't have yet is made with these columns)
+    const headers = !(S.data.tabs && S.data.tabs[rec.tab]) && rec.tab === 'Action Cards' ? CARD_HEADERS : undefined;
+    return { ref, tab: rec.tab, row: rec.isNew ? 0 : rec.row, match: rec.isNew || !matchH ? null : { column: matchH, value: rec.orig[matchH] }, values, status, headers, sent: { ...rec.cur } };
   });
   const sent = {};
   for (const e of edits) { sent[e.ref] = e.sent; delete e.sent; }
@@ -466,6 +471,7 @@ async function save(refs, auto) {
       if (!r.ok) { failed.push(r.error); continue; }
       ok++;
       const d = S.drafts[r.ref], tab = r.tab, rows = tabData(tab).rows;
+      if (!(S.data.tabs && S.data.tabs[tab])) moved = true;   // a new tab: reload to see it
       if (r.headers) { tabData(tab).headers = r.headers; moved = true; }   // a column was added: reload so every row lines up
       const i = rows.findIndex(x => x.row === r.row);
       if (i >= 0) rows[i] = { row: r.row, cells: r.cells }; else rows.push({ row: r.row, cells: r.cells });
@@ -576,6 +582,7 @@ function itemSub2(rec) {
     case 'Glimpses': return [val(rec, 'id'), val(rec, 'kind')].filter(Boolean).join(' · ');
     case 'Encounters': return [val(rec, 'id'), val(rec, 'depth') && 'depth ' + val(rec, 'depth')].filter(Boolean).join(' · ');
     case 'Masks': return [val(rec, 'id'), (val(rec, 'starting memories').split(',').filter(x => x.trim()).length) + ' memoriams'].filter(Boolean).join(' · ');
+    case 'Action Cards': return [val(rec, 'id'), val(rec, 'symbol')].filter(Boolean).join(' · ');
     default: return [val(rec, 'id'), val(rec, 'symbol')].filter(Boolean).join(' · ');
   }
 }
@@ -594,6 +601,9 @@ function thumb(rec) {
     const f = `mask_${val(rec, 'mask').trim()}.png`;
     t.style.background = 'none';
     t.appendChild(img(R.has(f) ? f : 'mask_blank.png'));
+  } else if (rec.tab === 'Action Cards') {
+    t.style.background = 'none';
+    t.appendChild(actionCardEl(cardModel(rec), 21));
   } else if (rec.tab === 'Encounters') {
     const m = encounterModel(rec)[0];
     t.appendChild(img(m && m.art && R.has(`mural_${m.art}.png`) ? `mural_${m.art}.png` : 'mural_spiral.png', { objectFit: 'cover', objectPosition: '50% 30%' }));
@@ -741,7 +751,7 @@ function renderForm() {
     : `<b>${REAL.tabs[rec.tab] || rec.tab}</b> tab, row ${rec.row}` + (isDirty(rec) ? (S.auto ? ' · saving soon…' : ` · ${changedHeaders(rec).length} change(s) not saved`) : ' · saved');
   form.appendChild(where);
 
-  const builders = { Memories: memoryForm, Glimpses: glimpseForm, Encounters: encounterForm, Keywords: keywordForm, Runes: runeForm, Masks: maskForm };
+  const builders = { Memories: memoryForm, Glimpses: glimpseForm, Encounters: encounterForm, Keywords: keywordForm, Runes: runeForm, Masks: maskForm, 'Action Cards': actionCardForm };
   const used = new Set();
   builders[rec.tab](form, rec, used);
   const rqh = HR(rec, 'requirements'); if (rqh) used.add(rqh);   // (the Requirements button)
@@ -1445,52 +1455,37 @@ function maskForm(form, rec, used) {
   cols.append(left, right);
   st.appendChild(cols);
 
-  // actions (up to 3, each a card along the bottom of the screen) and passives
-  const cardArts = R.AD.files.filter(x => /^action_.*\.png$/.test(x)).map(x => x.slice(7, -4));
-  const cardOf = b => { b = String(b || '').trim().toLowerCase(); if (b === 'arch') b = 'ruins'; return cardArts.includes(b) ? b : 'spiral'; };
-  const usedArts = new Set();
-  for (const r of records('Masks')) for (const i of [1, 2, 3]) { const x = parseAction(val(r, 'action ' + i)); if (x.name || x.text) usedArts.add(cardOf(x.banner)); }
-  const acts = fieldset(form, 'Actions');
+  // its action cards (up to 3, by name from the Action Cards tab), dealt at the start of a run
+  const acts = fieldset(form, 'Action cards');
   const actCols = [1, 2, 3].map(i => HR(rec, 'action ' + i) || 'action ' + i);
   actCols.forEach(h => used.add(h));
   const filledActs = actCols.filter(h => String(rec.cur[h] ?? '').trim()).length;
   const showActs = Math.max(1, filledActs, S.extraActs && S.extraActs.ref === rec.ref ? S.extraActs.n : 0);
+  const names = cardRecords().map(r => val(r, 'name').trim()).filter(Boolean);
+  const row = el('div', 'card-picks');
   for (let i = 0; i < Math.min(3, showActs); i++) {
     const h = actCols[i];
-    const a = parseAction(rec.cur[h]);
-    const box = el('div', 'tile-ed');
-    const top2 = el('div', 'top');
-    const nm = el('input'); nm.type = 'text'; nm.value = a.name; nm.placeholder = 'Name (e.g. Dig)';
-    a.banner = cardOf(a.banner);
-    const ic = el('div', 'pickicon');
-    const drawIc = () => { ic.innerHTML = ''; ic.appendChild(img(`action_${a.banner}.png`)); };
-    drawIc();
-    const ta = el('textarea'); ta.value = a.text; ta.placeholder = 'What it does (costs 1 action)';
-    const write = () => { a.name = nm.value; a.text = ta.value; setVal(rec.ref, h, writeAction(a)); };
-    nm.oninput = write; ta.oninput = write;
-    // its card's picture: this one, then the ones no mask uses yet, then the rest (dimmed: another mask has it)
-    const grid = el('div', 'glyphs cards');
-    const drawPics = () => {
-      grid.innerHTML = '';
-      const order = [a.banner, ...cardArts.filter(x => x !== a.banner && !usedArts.has(x)), ...cardArts.filter(x => x !== a.banner && usedArts.has(x))];
-      for (const name of order) {
-        const b = el('button', 'glyph' + (name === a.banner ? ' on' : '') + (name !== a.banner && usedArts.has(name) ? ' taken' : ''));
-        b.title = name + (name !== a.banner && usedArts.has(name) ? ' (another action has it)' : '');
-        b.appendChild(img(`action_${name}.png`));
-        b.onclick = () => { a.banner = name; drawIc(); drawPics(); write(); };
-        grid.appendChild(b);
-      }
-    };
-    drawPics();
-    top2.append(ic, nm);
-    if (showActs > 1) { const x = el('button', 'xbtn'); x.textContent = '×'; x.onclick = () => {
+    const cur = cardName(rec.cur[h]);
+    const box = el('div', 'card-pick');
+    const pic = el('div', 'pic');
+    const drawPic = n => { pic.innerHTML = ''; const c = findCard(n); if (c) pic.appendChild(actionCardEl(c, 92)); };
+    drawPic(cur);
+    const sel = el('select');
+    const opts = ['', ...names];
+    if (cur && !opts.some(n => n.toLowerCase() === cur.toLowerCase())) opts.push(cur);
+    for (const n of opts) { const o = el('option'); o.value = n; o.textContent = n || '(none)'; sel.appendChild(o); }
+    sel.value = opts.find(n => n.toLowerCase() === cur.toLowerCase()) ?? '';
+    sel.onchange = () => { setVal(rec.ref, h, sel.value); drawPic(sel.value); };
+    box.append(pic, sel);
+    if (showActs > 1) { const x = el('button', 'xbtn'); x.textContent = '×'; x.title = 'Take this card off the mask'; x.onclick = () => {
       const vals = actCols.map(c => String((record(rec.ref) || rec).cur[c] ?? '')); vals.splice(i, 1); vals.push('');
       actCols.forEach((c, k) => { if (String((record(rec.ref) || rec).cur[c] ?? '') !== vals[k]) setVal(rec.ref, c, vals[k]); });
-      if (S.extraActs && S.extraActs.ref === rec.ref) S.extraActs.n--; renderForm(); }; top2.appendChild(x); }
-    box.append(top2, ta, grid);
-    acts.appendChild(box);
+      if (S.extraActs && S.extraActs.ref === rec.ref) S.extraActs.n--; renderForm(); }; box.appendChild(x); }
+    row.appendChild(box);
   }
-  if (showActs < 3) { const add = el('button', 'btn small addbtn'); add.textContent = '+ Add action'; add.onclick = () => { S.extraActs = { ref: rec.ref, n: showActs + 1 }; renderForm(); }; acts.appendChild(add); }
+  acts.appendChild(row);
+  if (showActs < 3) { const add = el('button', 'btn small addbtn'); add.textContent = '+ Add a card'; add.onclick = () => { S.extraActs = { ref: rec.ref, n: showActs + 1 }; renderForm(); }; acts.appendChild(add); }
+  const note = el('div', 'hint'); note.textContent = 'Each card costs 1 action and can be used once per round. Make or change cards on the Action Cards tab.'; acts.appendChild(note);
 
   const pas = fieldset(form, 'Passives');
   const pasCols = [1, 2, 3].map(i => HR(rec, 'passive ' + i) || 'passive ' + i);
@@ -1539,13 +1534,12 @@ function previewMask(stage, rec) {
   if (attrs.children.length) wrap.appendChild(attrs);
   const acts = el('div', 'mask-acts');
   for (const i of [1, 2, 3]) {
-    const a = parseAction(val(rec, 'action ' + i));
-    if (!a.name && !a.text) continue;
+    const n = cardName(val(rec, 'action ' + i));
+    if (!n) continue;
+    const card = findCard(n);
     const c = el('div', 'mask-act');
-    let bf = `action_${String(a.banner || 'spiral').trim().toLowerCase() === 'arch' ? 'ruins' : (a.banner || 'spiral').trim().toLowerCase()}.png`;
-    if (!R.has(bf)) bf = 'action_spiral.png';
-    c.appendChild(img(bf));
-    const t = el('div'); t.innerHTML = `<b>${esc(a.name)}</b><span>${R.iconText(a.text, 16)}</span>`;
+    if (card) c.appendChild(actionCardEl(card, 74));
+    const t = el('div'); t.innerHTML = `<b>${esc(card ? card.name : n)}</b><span>${card ? R.iconText(card.text, 16) : '(no card by that name on the Action Cards tab)'}</span>`;
     c.appendChild(t);
     acts.appendChild(c);
   }
@@ -1567,6 +1561,87 @@ function previewMask(stage, rec) {
     if (r) { const card = R.memoryCard(memoryModel(r)); row.appendChild(scaledCard(card, 0.62)); R.layoutCard(card); }
     else { const builtin = (R.AD.builtinMemories || {})[n]; const card = R.memoryCard({ id: builtin || '', name: n, attributes: {}, runes: [], tiles: [], dice: 0 }); row.appendChild(scaledCard(card, 0.62)); R.layoutCard(card); }
   }
+}
+
+// --- action cards ---
+
+/** The ink symbols (Art/ink_*.png) and the parchments (Art/paper_*.png, not the _over layers). */
+const inkNames = () => R.AD.files.filter(f => /^ink_.*\.png$/.test(f)).map(f => f.slice(4, -4));
+const paperNames = () => R.AD.files.filter(f => /^paper_.*\.png$/.test(f) && !/_over\.png$/.test(f)).map(f => f.slice(6, -4));
+function cardRecords() { return S.data && S.data.tabs && S.data.tabs['Action Cards'] ? records('Action Cards') : []; }
+function cardModel(rec) { return { id: val(rec, 'id'), name: val(rec, 'name'), symbol: val(rec, 'symbol').trim(), paper: val(rec, 'paper').trim(), text: val(rec, 'text'), target: val(rec, 'target') }; }
+/** A mask's "action N" cell: the card's name. (An old one read "Name (art): what it does".) */
+function cardName(cell) { const t = String(cell || '').trim(); const a = parseAction(t); return (a.name || t).trim(); }
+function findCard(name) {
+  const n = String(name || '').trim().toLowerCase();
+  if (!n) return null;
+  const r = cardRecords().find(x => val(x, 'name').trim().toLowerCase() === n || val(x, 'id').trim().toLowerCase() === n);
+  return r ? cardModel(r) : null;
+}
+
+/** An action card drawn the way the game draws it: the parchment, its name in ink, the ink symbol under it, and
+ *  the parchment's wax, tears, chains... over both. w = the card's width in px. */
+function actionCardEl(c, w) {
+  const k = w / 300, h = 420 * k, m = 40 * k;
+  const box = el('div', 'acard', { width: w + 'px', height: h + 'px' });
+  const paper = R.has(`paper_${c.paper}.png`) ? c.paper : 'plain';
+  const layer = f => img(f, { position: 'absolute', left: -m + 'px', top: -m + 'px', width: w + 2 * m + 'px', height: h + 2 * m + 'px' });
+  box.appendChild(layer(`paper_${paper}.png`));
+  const sym = String(c.symbol || '').trim().toLowerCase().replace(/ /g, '_');
+  const sf = R.has(`ink_${sym}.png`) ? `ink_${sym}.png` : 'ink_spiral.png';
+  const s = w * 0.6;
+  box.appendChild(img(sf, { position: 'absolute', left: (w - s) / 2 + 'px', top: h * 0.58 - s / 2 + 'px', width: s + 'px', height: s + 'px', objectFit: 'contain', opacity: 0.93 }));
+  if (w >= 40) { const nm = el('div', 'acard-name', { top: h * 0.2 - 17 * k / 0.453 + 'px', fontSize: Math.max(7, 17 * w / 136) + 'px' }); nm.textContent = c.name; box.appendChild(nm); }
+  if (R.has(`paper_${paper}_over.png`)) box.appendChild(layer(`paper_${paper}_over.png`));
+  return box;
+}
+
+function actionCardForm(form, rec, used) {
+  const top = fieldset(form, 'Action card');
+  top.appendChild(textField(rec, 'name', 'Name', { big: true, create: true }, used));
+  top.appendChild(statusField(rec, used));
+  const look = fieldset(form, 'Look');
+  const sh = HR(rec, 'symbol') || 'symbol';
+  used.add(sh);
+  const f = el('div', 'f');
+  f.innerHTML = '<label>Ink symbol <span class="hint">(drawn under the name)</span></label>';
+  const wrap = el('div', 'ink-pick');
+  const sel = el('select');
+  const prev = el('div', 'ink-prev');
+  const curSym = () => String((record(rec.ref) || rec).cur[sh] ?? '').trim();
+  const names = inkNames();
+  if (curSym() && !names.includes(curSym())) names.unshift(curSym());
+  for (const n of names) { const o = el('option'); o.value = n; o.textContent = n.replace(/_/g, ' '); sel.appendChild(o); }
+  const draw = () => { prev.innerHTML = ''; if (R.has(`ink_${curSym()}.png`)) prev.appendChild(img(`ink_${curSym()}.png`)); };
+  sel.value = curSym() || 'spiral';
+  sel.onchange = () => { setVal(rec.ref, sh, sel.value); draw(); };
+  draw();
+  wrap.append(sel, prev);
+  f.appendChild(wrap);
+  look.appendChild(f);
+  look.appendChild(selectField(rec, 'paper', 'Parchment', paperNames(), used, { hint: '(its border: wax, tears, frost...)' }));
+  const what = fieldset(form, 'What it does');
+  what.appendChild(selectField(rec, 'target', 'Used on', [['has_sight', 'a memoriam with sight'], ['no_sight', 'a memoriam with no sight'], ['any', 'any memoriam'], ['none', 'no memoriam (it just happens)']], used));
+  what.appendChild(textField(rec, 'text', 'Card text', { area: true, rows: 3, create: true, placeholder: 'Clear 1 sight from a memoriam...' }, used));
+  what.appendChild(textField(rec, 'how it works', 'How it works', { area: true, rows: 2, hint: '(for whoever builds it: scatter, or the code it needs)' }, used));
+  const other = otherInfo(form);
+  other.appendChild(textField(rec, 'id', 'Id', { create: true }, used));
+  other.appendChild(textField(rec, 'mechanical clarification', 'Mechanical clarification', { area: true }, used));
+}
+
+function previewActionCard(stage, rec) {
+  const c = cardModel(rec);
+  const big = el('div', 'acard-pv');
+  big.appendChild(actionCardEl(c, 210));
+  const g = el('div', 'glossary');
+  const tgt = { has_sight: 'Used on a memoriam with sight.', no_sight: 'Used on a memoriam with no sight.', any: 'Used on any memoriam.', none: 'It picks no memoriam.' }[c.target.trim()] || '';
+  g.innerHTML = `<div class="h">${esc(c.name)}</div><div class="b">${R.iconText(c.text, 18)}<br><span class="dim">${esc(tgt)} Uses 1 action. Once per round.</span></div>`;
+  big.appendChild(g);
+  stage.appendChild(big);
+  const masks = records('Masks').filter(m => [1, 2, 3].some(i => cardName(val(m, 'action ' + i)).toLowerCase() === c.name.trim().toLowerCase()));
+  const n = el('div', 'pv-notes');
+  n.innerHTML = masks.length ? `<h4>Dealt by</h4><p>${masks.map(m => esc(val(m, 'name'))).join(', ')}</p>` : '<h4>Dealt by</h4><p>No mask yet (it can still be gained).</p>';
+  stage.appendChild(n);
 }
 
 // --- keywords & runes ---
@@ -1785,8 +1860,8 @@ function renderPreview() {
   const ref = currentRef();
   const rec = ref && record(ref);
   if (!rec) return;
-  const pv = { Memories: previewMemory, Glimpses: previewGlimpse, Encounters: previewEncounter, Keywords: previewKeyword, Runes: previewRune, Masks: previewMask };
-  lab.firstChild.textContent = { Memories: 'As a card in the ring', Glimpses: 'As a glimpse to choose', Encounters: 'As the fight shows it', Keywords: 'On an ability tile', Runes: 'On a card', Masks: 'As you choose it' }[rec.tab];
+  const pv = { Memories: previewMemory, Glimpses: previewGlimpse, Encounters: previewEncounter, Keywords: previewKeyword, Runes: previewRune, Masks: previewMask, 'Action Cards': previewActionCard };
+  lab.firstChild.textContent = { Memories: 'As a card in the ring', Glimpses: 'As a glimpse to choose', Encounters: 'As the fight shows it', Keywords: 'On an ability tile', Runes: 'On a card', Masks: 'As you choose it', 'Action Cards': 'In your hand' }[rec.tab];
   pv[rec.tab](stage, rec);
 }
 
