@@ -429,6 +429,16 @@ function rebindDrafts() {
     let row = tabData(d.tab).rows.find(r => r.row === d.row);
     if (row && h && String(rowObj(d.tab, row.cells)[h] ?? '').trim() !== want) row = null;
     if (!row && h && want) row = tabData(d.tab).rows.find(r => String(rowObj(d.tab, r.cells)[h] ?? '').trim() === want);
+    // renamed in the sheet since: find it by its id, and take the sheet's new values for whatever this change didn't touch
+    const idH = H(d.tab, 'id'), id = idH ? String(d.orig[idH] ?? '').trim() : '';
+    if (!row && id) {
+      row = tabData(d.tab).rows.find(r => String(rowObj(d.tab, r.cells)[idH] ?? '').trim() === id);
+      if (row) {
+        const now = rowObj(d.tab, row.cells);
+        for (const k of Object.keys(now)) if (String(d.cur[k] ?? '') === String(d.orig[k] ?? '')) d.cur[k] = now[k];
+        d.orig = now;
+      }
+    }
     if (row) moved[`${d.tab}:${row.row}`] = Object.assign(d, { row: row.row });
     else moved[ref] = d;   // gone from the sheet: keep the change, it saves as a new row
   }
@@ -491,6 +501,7 @@ async function save(refs, auto) {
     saveStore(true);
     refreshAfterSync();
     if (failed.length) toast(`Saved ${ok}. ${failed.length} didn't: ${failed[0]}`, true);
+    if (failed.some(f => /any more/.test(f)) && !S._retried) { S._retried = true; moved = true; setTimeout(() => { S._retried = false; scheduleAutoSave(); }, 4000); }
     else if (!auto) toast(`Saved ${ok} to the sheet (marked “Update”).`);
     if (moved) setTimeout(() => reload(true), 50);
   } catch (e) {
@@ -1098,12 +1109,35 @@ function tagsField(rec, used) {
 
 // --- glimpses ---
 
+/** A column's exact header, or the name itself (made when it's saved). */
+const exactH = (tab, name) => tabData(tab).headers.find(h => h.trim().toLowerCase() === name) || name;
+
+/** A choices glimpse: its prompt and choices [{name, effects}] (columns "choice N" / "choice effects N"). */
+function readChoices(rec) {
+  const cur = (record(rec.ref) || rec).cur, out = [];
+  for (let n = 1; n <= 12; n++) {
+    const name = String(cur[exactH(rec.tab, `choice ${n}`)] ?? ''), fx = String(cur[exactH(rec.tab, `choice effects ${n}`)] ?? '');
+    if (name || fx) out.push({ name, effects: fx });
+  }
+  while (out.length < (_blankChoices[rec.ref] || 0)) out.push({ name: '', effects: '' });   // (added, not filled in yet)
+  return out;
+}
+const _blankChoices = {};
+function writeChoices(rec, list) {
+  const cur = (record(rec.ref) || rec).cur;
+  for (let n = 1; n <= 12; n++) {
+    const c = list[n - 1] || { name: '', effects: '' };
+    for (const [col, v] of [[`choice ${n}`, c.name], [`choice effects ${n}`, c.effects]]) {
+      const h = exactH(rec.tab, col);
+      if (String(cur[h] ?? '') !== v && (v !== '' || h in cur)) setVal(rec.ref, h, v);
+    }
+  }
+}
+
 function glimpseForm(form, rec, used) {
   const top = fieldset(form, 'Glimpse');
-  const m = glimpseModel(rec);
-  const defaultInfo = { encounter: 'Fight', memory: 'New Memoriam' }[val(rec, 'kind').toLowerCase()] || (/^(y|yes)/i.test(val(rec, 'player picks a memory')) ? 'Tamper' : 'Event');
-  top.appendChild(textField(rec, 'info line', 'Info line', { create: true, placeholder: defaultInfo, hint: '(the small line above the title, e.g. NEW MEMORY)' }, used));
   top.appendChild(textField(rec, 'title', 'Title', { big: true }, used));
+  top.appendChild(textField(rec, 'text', 'Description', { area: true, rows: 2, create: true, hint: '(the smaller text on the choice tile)' }, used));
   top.appendChild(statusField(rec, used));
 
   const look = fieldset(form, 'Colour');
@@ -1131,29 +1165,78 @@ function glimpseForm(form, rec, used) {
     look.appendChild(sw);
   }
 
+  // what it does: in words, or (choices) a prompt then a choice of several
+  const kindH = H(rec.tab, 'kind') || 'kind';
+  const kind = () => String((record(rec.ref) || rec).cur[kindH] ?? '').toLowerCase() || 'effects';
+  for (let n = 1; n <= 12; n++) for (const c of [`choice ${n}`, `choice effects ${n}`]) { const x = H(rec.tab, c); if (x && x.trim().toLowerCase() === c) used.add(x); }
+  used.add(exactH(rec.tab, 'prompt'));
   const what = fieldset(form, 'What it does');
-  what.appendChild(textField(rec, 'what it does', 'What it does', { create: true, area: true, rows: 5,
-    placeholder: 'Explain what happens when you pick it, mechanically.' }, used));
-  if (!val(rec, 'what it does').trim() && val(rec, 'text').trim()) {
-    const now = el('div', 'reads'); now.innerHTML = `<b>The game says now:</b> ${esc(val(rec, 'text'))}`; what.appendChild(now);
-  }
+  const body = el('div');
+  const drawWhat = () => {
+    body.innerHTML = '';
+    const k = kind();
+    if (k === 'effects' || k === 'choices') {
+      const seg = el('div', 'seg');
+      for (const [v, label] of [['effects', 'Effects'], ['choices', 'Choices']]) {
+        const b = el('button', 'btn small' + (k === v ? ' on' : ''));
+        b.textContent = label;
+        b.onclick = () => { if (kind() !== v) { setVal(rec.ref, kindH, v); drawWhat(); renderPreview(); } };
+        seg.appendChild(b);
+      }
+      body.appendChild(seg);
+    }
+    if (k === 'choices') {
+      body.appendChild(textField(rec, exactH(rec.tab, 'prompt'), 'Prompt', { area: true, rows: 2, create: true, placeholder: 'The serpent points to its wares.', hint: '(what you see when you pick it)' }, used));
+      const list = readChoices(rec);
+      if (!list.length) list.push({ name: '', effects: '' });
+      const save = () => { _blankChoices[rec.ref] = list.length; writeChoices(rec, list); renderPreview(); };
+      list.forEach((c, i) => {
+        const box = el('div', 'choice-ed');
+        const head = el('div', 'choice-head');
+        head.innerHTML = `<b>Choice ${i + 1}</b>`;
+        if (list.length > 1) {
+          const x = el('button', 'btn small'); x.textContent = 'Remove'; x.title = 'Take this choice out';
+          x.onclick = () => { list.splice(i, 1); save(); drawWhat(); };
+          head.appendChild(x);
+        }
+        box.appendChild(head);
+        const nf = el('div', 'f'); nf.innerHTML = '<label>Name</label>';
+        const ni = el('input'); ni.type = 'text'; ni.value = c.name; ni.placeholder = 'Buttoned Shirt';
+        ni.oninput = () => { c.name = ni.value; save(); };
+        nf.appendChild(ni); box.appendChild(nf);
+        const ef = el('div', 'f'); ef.innerHTML = '<label>Effects</label>';
+        const ei = el('textarea'); ei.rows = 2; ei.value = c.effects; ei.placeholder = 'Add grit to a memoriam.';
+        ei.oninput = () => { c.effects = ei.value; save(); };
+        ef.appendChild(ei); box.appendChild(ef);
+        body.appendChild(box);
+      });
+      if (list.length < 12) {
+        const add = el('button', 'btn small'); add.textContent = '+ Add choice';
+        add.onclick = () => { list.push({ name: '', effects: '' }); save(); drawWhat(); };
+        body.appendChild(add);
+      }
+    } else {
+      body.appendChild(textField(rec, 'what it does', 'What it does', { create: true, area: true, rows: 5,
+        placeholder: 'Explain what happens when you pick it, mechanically.' }, used));
+    }
+  };
+  used.add(H(rec.tab, 'what it does') || 'what it does');
+  drawWhat();
+  what.appendChild(body);
 
   const other = otherInfo(form);
+  other.appendChild(selectField(rec, 'kind', 'Kind', [['effects', 'effects (an event)'], ['choices', 'choices (a prompt, then pick one)'], ['memory', 'memoriam (a new memoriam)'], ['encounter', 'encounter (a fight)']], used, { onchange: () => { drawWhat(); renderPreview(); } }));
+  const defaultInfo = { encounter: 'Fight', memory: 'New Memoriam' }[kind()] || (/^(y|yes)/i.test(val(rec, 'player picks a memory')) ? 'Tamper' : 'Event');
+  other.appendChild(textField(rec, 'info line', 'Info line', { create: true, placeholder: defaultInfo, hint: '(the small line above the title)' }, used));
   other.appendChild(textField(rec, 'id', 'Id', {}, used));
-  other.appendChild(selectField(rec, 'kind', 'Kind', [['effects', 'effects (an event)'], ['memory', 'memoriam (a new memoriam)'], ['encounter', 'encounter (a fight)']], used, { onchange: () => renderPreview() }));
-  other.appendChild(textField(rec, 'text', 'In-game text', { area: true, rows: 2 }, used));
-  other.appendChild(checkField(rec, 'player picks a memory', 'The player picks a memoriam for it (a “tamper”)', used));
   const r2 = el('div', 'row');
   r2.appendChild(textField(rec, 'cost', 'Cost', { placeholder: 'e.g. 1 bone' }, used));
   r2.appendChild(textField(rec, 'offered weight', 'Offered weight', { number: true }, used));
   r2.appendChild(textField(rec, 'from depth', 'From depth', { number: true }, used));
   r2.appendChild(textField(rec, 'to depth', 'To depth', { number: true }, used));
   other.appendChild(r2);
-  other.appendChild(textField(rec, 'effects', 'Effects', { area: true, code: true }, used));
-  other.appendChild(textField(rec, 'if you have', 'If you have', {}, used));
-  other.appendChild(textField(rec, 'then also', 'Then also', { code: true }, used));
-  other.appendChild(textField(rec, 'otherwise', 'Otherwise', { code: true }, used));
-  other.appendChild(textField(rec, 'artwork', 'Artwork notes', {}, used));
+  // (the old columns, which the game is now told in words: kept in the sheet, hidden here)
+  for (const k of ['effects', 'if you have', 'then also', 'otherwise', 'artwork', 'player picks a memory']) { const x = H(rec.tab, k); if (x) used.add(x); }
 }
 
 // --- encounters ---
@@ -1939,7 +2022,11 @@ function previewGlimpse(stage, rec) {
   const bits = [`<p><b>${esc(g.kind)}</b> · ${esc(g.color)}${GLIMPSE_COLORS.includes(val(rec, 'colour').toLowerCase()) ? '' : ' (picked automatically)'}</p>`];
   const w = val(rec, 'offered weight'), from = val(rec, 'from depth'), to = val(rec, 'to depth');
   bits.push(`<p>Offered weight ${esc(w || '1')}${from || to ? ` · depths ${esc(from || 'any')}–${esc(to || 'any')}` : ''}${val(rec, 'cost') ? ' · costs ' + esc(val(rec, 'cost')) : ''}</p>`);
-  if (!val(rec, 'effects').trim() && val(rec, 'kind').toLowerCase() === 'effects') bits.push('<p class="warnline">No effects written yet, so the game can\'t run it (fine for an Idea).</p>');
+  if (val(rec, 'kind').toLowerCase() === 'choices') {
+    const list = readChoices(rec);
+    bits.push(`<h4>When picked</h4><p><i>${esc(val(rec, 'prompt') || '(no prompt yet)')}</i></p>` +
+      list.map(c => `<p><b>${esc(c.name || '(unnamed)')}</b>${c.effects ? ' — ' + esc(c.effects) : ''}</p>`).join(''));
+  }
   notes.innerHTML = bits.join('');
   stage.appendChild(notes);
 }
