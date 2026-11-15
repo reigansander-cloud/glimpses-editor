@@ -334,3 +334,11 @@ fieldset.dialogue p.hint { color: var(--faint); font-size: 12px; margin: 0 0 6px
 fieldset[class*="hue-"] { border-color: var(--hb); background: linear-gradient(var(--ht), var(--panel) 160px); }
 fieldset[class*="hue-"] > legend { color: var(--hl); }
 details.more[class*="hue-"] > summary { color: var(--hl); }
+.toggle button.on.guaranteed { background: #6b5320; color: #fff2cf; }
+dialog { max-height: 90vh; overflow-y: auto; }
+dialog .req-sec { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 12px; }
+dialog .req-sec:first-of-type { border-top: 0; padding-top: 0; margin-top: 0; }
+dialog .req-sec h4 { margin: 0 0 4px; font: 700 13px Cinzel, var(--serif); letter-spacing: .5px; color: #8fc6e0; }
+dialog .req-sec.unlock h4 { color: #e8a0bf; }
+dialog .req-sec p.dim { margin: 0 0 10px; }
+dialog#reqDialog { width: min(760px, 94vw); }

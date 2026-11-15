@@ -756,19 +756,13 @@ function renderForm() {
     const sv = el('button', 'btn primary small'); sv.textContent = rec.isNew ? 'Save to sheet' : 'Save this'; sv.onclick = () => save([ref]); head.appendChild(sv);
     const rv = el('button', 'btn small'); rv.textContent = rec.isNew ? 'Discard' : 'Undo changes'; rv.onclick = () => revert(ref); head.appendChild(rv);
   }
-  if (UNLOCKABLE.includes(rec.tab)) {
-    const u = parseUnlock(val(rec, 'unlock'));
-    const ub = el('button', 'btn small req' + (u.name ? ' has' : ''));
-    ub.textContent = u.name ? `🔒 ${u.name}` : 'Unlock condition';
-    ub.title = 'An achievement that unlocks this: until it\'s done, this never turns up';
-    ub.onclick = () => openUnlock(ref);
-    head.appendChild(ub);
-  }
-  if (['Memories', 'Glimpses', 'Encounters'].includes(rec.tab)) {
-    const n = parseRequirements(val(rec, 'requirements')).length;
-    const rq = el('button', 'btn small req' + (n ? ' has' : ''));
-    rq.textContent = n ? `Requirements (${n})` : 'Requirements';
-    rq.title = 'When this can turn up (and when it never will)';
+  if (UNLOCKABLE.includes(rec.tab) || REQ_TABS.includes(rec.tab)) {
+    // one button: the conditions on when it turns up, and the achievement that unlocks it
+    const n = REQ_TABS.includes(rec.tab) ? parseRequirements(val(rec, 'requirements')).length : 0;
+    const u = UNLOCKABLE.includes(rec.tab) ? parseUnlock(val(rec, 'unlock')) : { name: '' };
+    const rq = el('button', 'btn small req' + (n || u.name ? ' has' : ''));
+    rq.textContent = (u.name ? '🔒 ' : '') + (n ? `Requirements (${n})` : 'Requirements');
+    rq.title = 'When this can turn up (only if / never if / guaranteed if), and the achievement that unlocks it' + (u.name ? ` (${u.name})` : '');
     rq.onclick = () => openRequirements(ref);
     head.appendChild(rq);
   }
@@ -1946,14 +1940,17 @@ function runeForm(form, rec, used) {
 
 // ----- requirements -------------------------------------------------------------------------------------
 
-/** "Only if: you have Spiteful King Upon His Throne" / "Never if: you've fought the Hollow Pilgrim", one per line. */
+const REQ_TABS = ['Memories', 'Glimpses', 'Encounters'];
+/** The three kinds of condition: only if (it can't turn up otherwise), never if, guaranteed if (it WILL turn up the next time it can). */
+const REQ_MODES = [['only', 'Only if'], ['never', 'Never if'], ['guaranteed', 'Guaranteed if']];
+/** "Only if: you have Spiteful King Upon His Throne" / "Never if: you've fought the Hollow Pilgrim" / "Guaranteed if: ...", one per line. */
 function parseRequirements(text) {
   return String(text || '').split(/\n/).map(l => l.trim()).filter(Boolean).map(l => {
-    const m = l.match(/^(only if|never if)\s*:\s*([\s\S]*)$/i);
-    return m ? { never: /^never/i.test(m[1]), text: m[2].trim() } : { never: false, text: l };
+    const m = l.match(/^(only if|never if|guaranteed if)\s*:\s*([\s\S]*)$/i);
+    return m ? { mode: m[1].toLowerCase().split(' ')[0], text: m[2].trim() } : { mode: 'only', text: l };
   });
 }
-const writeRequirements = list => list.filter(r => r.text.trim()).map(r => `${r.never ? 'Never if' : 'Only if'}: ${r.text.trim()}`).join('\n');
+const writeRequirements = list => list.filter(r => r.text.trim()).map(r => `${REQ_MODES.find(m => m[0] === r.mode)[1]}: ${r.text.trim()}`).join('\n');
 
 // ----- unlock (an achievement) -------------------------------------------------------------------------
 
@@ -1975,91 +1972,93 @@ function parseUnlock(text) {
 const writeUnlock = u => !u.name.trim() && !u.description.trim() && !u.how.trim() ? ''
   : [`Achievement: ${u.name.trim()}`, `Description: ${u.description.trim()}`, `How: ${u.how.trim()}`, `Mystery: ${u.mystery ? 'yes' : 'no'}`].join('\n');
 
-function openUnlock(ref) {
+/** The Requirements popup: when it can turn up, then (for what can be locked) the achievement that unlocks it. */
+function openRequirements(ref) {
   const rec = record(real(ref));
-  const u = parseUnlock(val(rec, 'unlock'));
+  const hasReq = REQ_TABS.includes(rec.tab), hasUnlock = UNLOCKABLE.includes(rec.tab);
+  let list = parseRequirements(val(rec, 'requirements'));
+  if (!list.length) list = [{ mode: 'only', text: '' }];
   let d = document.getElementById('reqDialog');
   if (d) d.remove();
   d = el('dialog'); d.id = 'reqDialog';
-  d.innerHTML = `<h3>Unlock condition</h3><p class="dim">An achievement unlocks this: until you've done it, <b>${esc(itemTitle(rec))}</b>
-    never turns up. It's listed under Achievements on the game's home screen.</p>`;
-  const save = () => setVal(real(ref), 'unlock', writeUnlock(u));
-  const field = (label, key, area, ph) => {
-    const f = el('div', 'f');
-    f.innerHTML = `<label>${label}</label>`;
-    const inp = area ? el('textarea') : el('input');
-    if (!area) inp.type = 'text'; else inp.rows = 2;
-    inp.value = u[key]; inp.placeholder = ph;
-    inp.oninput = () => { u[key] = inp.value; save(); };
-    f.appendChild(inp);
-    d.appendChild(f);
-    return inp;
-  };
-  const first = field('Achievement name', 'name', false, 'e.g. The Long Walk');
-  field('Description <span class="hint">(what the player reads)</span>', 'description', true, 'e.g. Reach the deepest glimpse.');
-  field('How you unlock it <span class="hint">(exactly what has to happen; the game is made to check this)</span>', 'how', true, 'e.g. reach depth 12 in any run');
-  const my = el('label', 'check');
-  const cb = el('input'); cb.type = 'checkbox'; cb.checked = u.mystery;
-  cb.onchange = () => { u.mystery = cb.checked; save(); };
-  my.append(cb, document.createTextNode(' Mystery: only its name shows until it\'s done (the description reads ???)'));
-  d.appendChild(my);
+  d.innerHTML = `<h3>Requirements</h3>`;
+  let firstInput = null;
+
+  if (hasReq) {
+    const sec = el('div', 'req-sec');
+    sec.innerHTML = `<h4>When it turns up</h4><p class="dim"><b>Only if</b>: you'll only see it when this is true.
+      <b>Never if</b>: you won't see it once this is true. <b>Guaranteed if</b>: once this is true, it <i>will</i> turn up the next time it possibly can.
+      Write them however you like.</p>`;
+    const rows = el('div', 'req-rows');
+    const save = () => setVal(real(ref), 'requirements', writeRequirements(list));
+    const ph = { only: 'e.g. you have Spiteful King Upon His Throne', never: "e.g. you've fought the Hollow Pilgrim", guaranteed: 'e.g. you have the Candle of Hope' };
+    const draw = () => {
+      rows.innerHTML = '';
+      list.forEach((r, i) => {
+        const row = el('div', 'req-row');
+        const tg = el('div', 'toggle');
+        for (const [mode, label] of REQ_MODES) {
+          const b = el('button', r.mode === mode ? 'on ' + mode : '');
+          b.textContent = label;
+          b.onclick = () => { r.mode = mode; save(); draw(); };
+          tg.appendChild(b);
+        }
+        const inp = el('input'); inp.type = 'text'; inp.value = r.text;
+        inp.placeholder = ph[r.mode];
+        inp.oninput = () => { r.text = inp.value; save(); };
+        const x = el('button', 'xbtn'); x.textContent = '×'; x.title = 'Remove';
+        x.onclick = () => { list.splice(i, 1); if (!list.length) list.push({ mode: 'only', text: '' }); save(); draw(); };
+        row.append(tg, inp, x);
+        rows.appendChild(row);
+      });
+    };
+    draw();
+    sec.appendChild(rows);
+    const add = el('button', 'btn small'); add.textContent = '+ Add condition';
+    add.onclick = () => { list.push({ mode: 'only', text: '' }); draw(); const ins = rows.querySelectorAll('input'); ins[ins.length - 1].focus(); };
+    sec.appendChild(add);
+    d.appendChild(sec);
+    firstInput = rows.querySelector('input');
+  }
+
+  if (hasUnlock) {
+    const u = parseUnlock(val(rec, 'unlock'));
+    const sec = el('div', 'req-sec unlock');
+    sec.innerHTML = `<h4>Unlock condition</h4><p class="dim">An achievement unlocks this: until you've done it, <b>${esc(itemTitle(rec))}</b>
+      never turns up. It's listed under Achievements on the game's home screen. Leave the name blank for always available.</p>`;
+    const save = () => setVal(real(ref), 'unlock', writeUnlock(u));
+    const field = (label, key, area, ph) => {
+      const f = el('div', 'f');
+      f.innerHTML = `<label>${label}</label>`;
+      const inp = area ? el('textarea') : el('input');
+      if (!area) inp.type = 'text'; else inp.rows = 2;
+      inp.value = u[key]; inp.placeholder = ph;
+      inp.oninput = () => { u[key] = inp.value; save(); };
+      f.appendChild(inp);
+      sec.appendChild(f);
+      return inp;
+    };
+    const nm = field('Achievement name', 'name', false, 'e.g. The Long Walk');
+    field('Description <span class="hint">(what the player reads)</span>', 'description', true, 'e.g. Reach the deepest glimpse.');
+    field('How you unlock it <span class="hint">(exactly what has to happen; the game is made to check this)</span>', 'how', true, 'e.g. reach depth 12 in any run');
+    const my = el('label', 'check');
+    const cb = el('input'); cb.type = 'checkbox'; cb.checked = u.mystery;
+    cb.onchange = () => { u.mystery = cb.checked; save(); };
+    my.append(cb, document.createTextNode(' Mystery: only its name shows until it\'s done (the description reads ???)'));
+    sec.appendChild(my);
+    d.appendChild(sec);
+    if (!firstInput) firstInput = nm;
+  }
+
   const actions = el('div', 'actions');
-  const rm = el('button', 'btn small danger'); rm.textContent = 'No unlock (always available)';
-  rm.onclick = () => { u.name = u.description = u.how = ''; u.mystery = false; save(); d.close(); };
   const done = el('button', 'btn primary'); done.textContent = 'Done';
   done.onclick = () => d.close();
-  actions.append(rm, el('span', null, { flex: 1 }), done);
+  actions.append(el('span', null, { flex: 1 }), done);
   d.appendChild(actions);
   d.addEventListener('close', () => { d.remove(); renderForm(); refreshListItem(real(ref)); });
   document.body.appendChild(d);
   d.showModal();
-  first.focus();
-}
-
-function openRequirements(ref) {
-  const rec = record(real(ref));
-  let list = parseRequirements(val(rec, 'requirements'));
-  if (!list.length) list = [{ never: false, text: '' }];
-  let d = document.getElementById('reqDialog');
-  if (d) d.remove();
-  d = el('dialog'); d.id = 'reqDialog';
-  d.innerHTML = `<h3>Requirements</h3><p class="dim">When this can turn up. <b>Only if</b>: you'll only see it when this is true.
-    <b>Never if</b>: you won't see it once this is true. Write them however you like.</p>`;
-  const rows = el('div', 'req-rows');
-  const save = () => setVal(real(ref), 'requirements', writeRequirements(list));
-  const draw = () => {
-    rows.innerHTML = '';
-    list.forEach((r, i) => {
-      const row = el('div', 'req-row');
-      const tg = el('div', 'toggle');
-      for (const [never, label] of [[false, 'Only if'], [true, 'Never if']]) {
-        const b = el('button', r.never === never ? 'on' + (never ? ' never' : '') : '');
-        b.textContent = label;
-        b.onclick = () => { r.never = never; save(); draw(); };
-        tg.appendChild(b);
-      }
-      const inp = el('input'); inp.type = 'text'; inp.value = r.text;
-      inp.placeholder = r.never ? "e.g. you've fought the Hollow Pilgrim" : 'e.g. you have Spiteful King Upon His Throne';
-      inp.oninput = () => { r.text = inp.value; save(); };
-      const x = el('button', 'xbtn'); x.textContent = '×'; x.title = 'Remove';
-      x.onclick = () => { list.splice(i, 1); if (!list.length) list.push({ never: false, text: '' }); save(); draw(); };
-      row.append(tg, inp, x);
-      rows.appendChild(row);
-    });
-  };
-  draw();
-  d.appendChild(rows);
-  const actions = el('div', 'actions');
-  const add = el('button', 'btn small'); add.textContent = '+ Add condition';
-  add.onclick = () => { list.push({ never: false, text: '' }); draw(); const ins = rows.querySelectorAll('input'); ins[ins.length - 1].focus(); };
-  const done = el('button', 'btn primary'); done.textContent = 'Done';
-  done.onclick = () => d.close();
-  actions.append(add, el('span', null, { flex: 1 }), done);
-  d.appendChild(actions);
-  d.addEventListener('close', () => { d.remove(); renderForm(); });
-  document.body.appendChild(d);
-  d.showModal();
-  const first = rows.querySelector('input'); if (first) first.focus();
+  if (firstInput) firstInput.focus();
 }
 
 // ----- preview ------------------------------------------------------------------------------------------
