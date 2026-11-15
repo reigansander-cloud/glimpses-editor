@@ -1150,6 +1150,88 @@ function writeChoices(rec, list) {
   }
 }
 
+/** Dialogue said before a glimpse (or an encounter) resolves: lines [{who, what, cond}] in "speaker N" / "line N" / "line condition N". */
+const DIALOGUE_MAX = 40;
+const _blankLines = {};
+function readDialogue(rec) {
+  const cur = (record(rec.ref) || rec).cur, out = [];
+  for (let n = 1; n <= DIALOGUE_MAX; n++) {
+    const g = c => String(cur[exactH(rec.tab, `${c} ${n}`)] ?? '');
+    const who = g('speaker'), what = g('line'), cond = g('line condition');
+    if (who || what || cond) out.push({ who, what, cond });
+  }
+  while (out.length < (_blankLines[rec.ref] || 0)) out.push({ who: '', what: '', cond: '' });
+  return out;
+}
+function writeDialogue(rec, list) {
+  const cur = (record(rec.ref) || rec).cur;
+  for (let n = 1; n <= DIALOGUE_MAX; n++) {
+    const l = list[n - 1] || { who: '', what: '', cond: '' };
+    for (const [col, v] of [[`speaker ${n}`, l.who], [`line ${n}`, l.what], [`line condition ${n}`, l.cond]]) {
+      const h = exactH(rec.tab, col);
+      if (String(cur[h] ?? '') !== v && (v !== '' || h in cur)) setVal(rec.ref, h, v);
+    }
+  }
+}
+function dialogueSection(form, rec, used) {
+  for (let n = 1; n <= DIALOGUE_MAX; n++) for (const c of [`speaker ${n}`, `line ${n}`, `line condition ${n}`]) { const x = H(rec.tab, c); if (x && x.trim().toLowerCase() === c) used.add(x); }
+  ensureDatalist('speakerNames', ['You', ...Object.keys(R.AD.enemies || {}).map(k => k.replace(/\b\w/g, c => c.toUpperCase()))]);
+  const fs = fieldset(form, 'Dialogue', true);
+  const sum = fs.parentNode.querySelector('summary');
+  fs.classList.add('dialogue');
+  const body = el('div');
+  fs.appendChild(body);
+  const draw = () => {
+    body.innerHTML = '';
+    const list = readDialogue(rec);
+    const filled = list.filter(l => l.what.trim()).length;
+    sum.textContent = 'Dialogue' + (filled ? ` (${filled} line${filled > 1 ? 's' : ''})` : '');
+    const hint = el('p', 'hint');
+    hint.textContent = rec.tab === 'Encounters'
+      ? 'Said one line at a time before the fight starts (it replaces the glimpse\'s own dialogue). "You" is the player.'
+      : 'Said one line at a time after it\'s picked, before it happens. "You" is the player.';
+    body.appendChild(hint);
+    const save = () => { _blankLines[rec.ref] = list.length; writeDialogue(rec, list); };
+    list.forEach((l, i) => {
+      const box = el('div', 'choice-ed line-ed');
+      const head = el('div', 'choice-head');
+      head.innerHTML = `<b>Line ${i + 1}</b>`;
+      const x = el('button', 'btn small'); x.textContent = 'Remove'; x.title = 'Take this line out';
+      x.onclick = () => { list.splice(i, 1); save(); draw(); };
+      head.appendChild(x);
+      box.appendChild(head);
+      const row = el('div', 'row');
+      const wf = el('div', 'f'); wf.innerHTML = '<label>Who?</label>';
+      const wi = el('input'); wi.type = 'text'; wi.value = l.who; wi.placeholder = 'You'; wi.setAttribute('list', 'speakerNames');
+      wi.oninput = () => { l.who = wi.value; save(); };
+      wf.appendChild(wi); row.appendChild(wf);
+      const cf = el('div', 'f'); cf.innerHTML = '<label>Condition <span class="hint">(blank = always)</span></label>';
+      const ci = el('input'); ci.type = 'text'; ci.value = l.cond; ci.placeholder = 'have the Candle of Hope';
+      ci.title = 'Only said if this is true, otherwise skipped. e.g. have the Candle of Hope · not have the Candle of Hope · using the Refrain mask · have 3 bone · depth 4';
+      ci.oninput = () => { l.cond = ci.value; save(); };
+      cf.appendChild(ci); row.appendChild(cf);
+      box.appendChild(row);
+      const tf = el('div', 'f'); tf.innerHTML = '<label>What?</label>';
+      const ti = el('textarea'); ti.rows = 2; ti.value = l.what; ti.placeholder = 'What is said.';
+      ti.oninput = () => { l.what = ti.value; save(); const f = list.filter(z => z.what.trim()).length; sum.textContent = 'Dialogue' + (f ? ` (${f} line${f > 1 ? 's' : ''})` : ''); };
+      tf.appendChild(ti); box.appendChild(tf);
+      body.appendChild(box);
+    });
+    if (list.length < DIALOGUE_MAX) {
+      const add = el('button', 'btn small'); add.textContent = '+ Add line';
+      add.onclick = () => {
+        const last = list[list.length - 1];
+        list.push({ who: last ? (/^you$/i.test(last.who.trim()) ? '' : 'You') : '', what: '', cond: '' });
+        save(); draw();
+        const tas = body.querySelectorAll('.line-ed textarea'); if (tas.length) tas[tas.length - 1].focus();
+      };
+      body.appendChild(add);
+    }
+  };
+  draw();
+  return fs;
+}
+
 function glimpseForm(form, rec, used) {
   const top = fieldset(form, 'Glimpse');
   const kindNow = String(val(rec, 'kind')).toLowerCase();
@@ -1189,6 +1271,7 @@ function glimpseForm(form, rec, used) {
   const kind = () => String((record(rec.ref) || rec).cur[kindH] ?? '').toLowerCase() || 'effects';
   for (let n = 1; n <= 12; n++) for (const c of [`choice ${n}`, `choice effects ${n}`]) { const x = H(rec.tab, c); if (x && x.trim().toLowerCase() === c) used.add(x); }
   used.add(exactH(rec.tab, 'prompt'));
+  dialogueSection(form, rec, used);
   const what = fieldset(form, 'What it does');
   const body = el('div');
   const drawWhat = () => {
@@ -1341,6 +1424,7 @@ function encounterForm(form, rec, used) {
   for (const k of ['enemies', 'intents', 'what they do', ...BAR_TYPES.flatMap(b => [b.need, b.reward])]) { const h = HR(rec, k); if (h) used.add(h); }
   const enemies = readEnemies(rec);
   const write = () => writeEnemies(rec.ref, enemies);
+  dialogueSection(form, rec, used);
   const box = el('div', 'enemies');
   form.appendChild(box);
   const draw = () => {
