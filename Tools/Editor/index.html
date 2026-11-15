@@ -4,11 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Glimpses Editor</title>
-<link rel="stylesheet" href="editor.css">
-<script src="sheet_link.js"></script>
-<script src="art_data.js"></script>
-<script src="render.js"></script>
-<script src="editor.js"></script>
+<meta http-equiv="Cache-Control" content="no-cache">
+<script>
+  // always the latest editor (the web host keeps old copies for a while otherwise)
+  (function () {
+    var v = Date.now();
+    document.write('<link rel="stylesheet" href="editor.css?v=' + v + '">');
+    ['sheet_link.js', 'art_data.js', 'render.js', 'editor.js'].forEach(function (f) { document.write('<script src="' + f + '?v=' + v + '"><\/script>'); });
+  })();
+</script>
 </head>
 <body>
 <header id="top">
