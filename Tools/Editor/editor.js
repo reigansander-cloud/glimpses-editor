@@ -1455,37 +1455,41 @@ function maskForm(form, rec, used) {
   cols.append(left, right);
   st.appendChild(cols);
 
-  // its action cards (up to 3, by name from the Action Cards tab), dealt at the start of a run
+  // its action cards (any number, repeats allowed, by name from the Action Cards tab), dealt at the start of a run
   const acts = fieldset(form, 'Action cards');
-  const actCols = [1, 2, 3].map(i => HR(rec, 'action ' + i) || 'action ' + i);
-  actCols.forEach(h => used.add(h));
-  const filledActs = actCols.filter(h => String(rec.cur[h] ?? '').trim()).length;
-  const showActs = Math.max(1, filledActs, S.extraActs && S.extraActs.ref === rec.ref ? S.extraActs.n : 0);
+  numbered(rec, 'action').forEach(h => used.add(h));
+  const deck = maskCards(rec);
+  const extra = S.extraActs && S.extraActs.ref === rec.ref ? S.extraActs.n : 0;
   const names = cardRecords().map(r => val(r, 'name').trim()).filter(Boolean);
   const row = el('div', 'card-picks');
-  for (let i = 0; i < Math.min(3, showActs); i++) {
-    const h = actCols[i];
-    const cur = cardName(rec.cur[h]);
+  const writeDeck = list => { setNumbered(rec.ref, 'action', 'action', list.filter(Boolean)); renderForm(); };
+  const slots = [...deck, ...Array(Math.max(deck.length ? 0 : 1, extra)).fill('')];
+  slots.forEach((cur, i) => {
     const box = el('div', 'card-pick');
     const pic = el('div', 'pic');
-    const drawPic = n => { pic.innerHTML = ''; const c = findCard(n); if (c) pic.appendChild(actionCardEl(c, 92)); };
-    drawPic(cur);
+    const c = findCard(cur);
+    if (c) pic.appendChild(actionCardEl(c, 92));
     const sel = el('select');
     const opts = ['', ...names];
     if (cur && !opts.some(n => n.toLowerCase() === cur.toLowerCase())) opts.push(cur);
-    for (const n of opts) { const o = el('option'); o.value = n; o.textContent = n || '(none)'; sel.appendChild(o); }
+    for (const n of opts) { const o = el('option'); o.value = n; o.textContent = n || '(pick a card)'; sel.appendChild(o); }
     sel.value = opts.find(n => n.toLowerCase() === cur.toLowerCase()) ?? '';
-    sel.onchange = () => { setVal(rec.ref, h, sel.value); drawPic(sel.value); };
+    sel.onchange = () => {
+      const list = [...deck];
+      if (i < deck.length) list[i] = sel.value; else { list.push(sel.value); if (S.extraActs) S.extraActs.n = Math.max(0, S.extraActs.n - 1); }
+      writeDeck(list);
+    };
     box.append(pic, sel);
-    if (showActs > 1) { const x = el('button', 'xbtn'); x.textContent = '×'; x.title = 'Take this card off the mask'; x.onclick = () => {
-      const vals = actCols.map(c => String((record(rec.ref) || rec).cur[c] ?? '')); vals.splice(i, 1); vals.push('');
-      actCols.forEach((c, k) => { if (String((record(rec.ref) || rec).cur[c] ?? '') !== vals[k]) setVal(rec.ref, c, vals[k]); });
-      if (S.extraActs && S.extraActs.ref === rec.ref) S.extraActs.n--; renderForm(); }; box.appendChild(x); }
+    const x = el('button', 'xbtn'); x.textContent = '×'; x.title = 'Take this card off the mask';
+    x.onclick = () => { if (i < deck.length) { const list = [...deck]; list.splice(i, 1); writeDeck(list); } else { if (S.extraActs) S.extraActs.n = Math.max(0, S.extraActs.n - 1); renderForm(); } };
+    box.appendChild(x);
     row.appendChild(box);
-  }
+  });
   acts.appendChild(row);
-  if (showActs < 3) { const add = el('button', 'btn small addbtn'); add.textContent = '+ Add a card'; add.onclick = () => { S.extraActs = { ref: rec.ref, n: showActs + 1 }; renderForm(); }; acts.appendChild(add); }
-  const note = el('div', 'hint'); note.textContent = 'Each card costs 1 action and can be used once per round. Make or change cards on the Action Cards tab.'; acts.appendChild(note);
+  const add = el('button', 'btn small addbtn'); add.textContent = '+ Add a card';
+  add.onclick = () => { S.extraActs = { ref: rec.ref, n: extra + 1 }; renderForm(); };
+  acts.appendChild(add);
+  const note = el('div', 'hint'); note.textContent = 'Any number of cards, and the same card more than once if you like. Each costs 1 action and can be used once per round. Make or change cards on the Action Cards tab.'; acts.appendChild(note);
 
   const pas = fieldset(form, 'Passives');
   const pasCols = [1, 2, 3].map(i => HR(rec, 'passive ' + i) || 'passive ' + i);
@@ -1533,9 +1537,7 @@ function previewMask(stage, rec) {
   }
   if (attrs.children.length) wrap.appendChild(attrs);
   const acts = el('div', 'mask-acts');
-  for (const i of [1, 2, 3]) {
-    const n = cardName(val(rec, 'action ' + i));
-    if (!n) continue;
+  for (const n of maskCards(rec)) {
     const card = findCard(n);
     const c = el('div', 'mask-act');
     if (card) c.appendChild(actionCardEl(card, 74));
@@ -1572,6 +1574,8 @@ function cardRecords() { return S.data && S.data.tabs && S.data.tabs['Action Car
 function cardModel(rec) { return { id: val(rec, 'id'), name: val(rec, 'name'), symbol: val(rec, 'symbol').trim(), paper: val(rec, 'paper').trim(), text: val(rec, 'text'), target: val(rec, 'target') }; }
 /** A mask's "action N" cell: the card's name. (An old one read "Name (art): what it does".) */
 function cardName(cell) { const t = String(cell || '').trim(); const a = parseAction(t); return (a.name || t).trim(); }
+/** A mask's cards, in order (the "action 1", "action 2"... columns; repeats allowed). */
+function maskCards(rec) { return numbered(rec, 'action').map(h => cardName(rec.cur[h])).filter(Boolean); }
 function findCard(name) {
   const n = String(name || '').trim().toLowerCase();
   if (!n) return null;
@@ -1638,7 +1642,7 @@ function previewActionCard(stage, rec) {
   g.innerHTML = `<div class="h">${esc(c.name)}</div><div class="b">${R.iconText(c.text, 18)}<br><span class="dim">${esc(tgt)} Uses 1 action. Once per round.</span></div>`;
   big.appendChild(g);
   stage.appendChild(big);
-  const masks = records('Masks').filter(m => [1, 2, 3].some(i => cardName(val(m, 'action ' + i)).toLowerCase() === c.name.trim().toLowerCase()));
+  const masks = records('Masks').filter(m => maskCards(m).some(n => n.toLowerCase() === c.name.trim().toLowerCase()));
   const n = el('div', 'pv-notes');
   n.innerHTML = masks.length ? `<h4>Dealt by</h4><p>${masks.map(m => esc(val(m, 'name'))).join(', ')}</p>` : '<h4>Dealt by</h4><p>No mask yet (it can still be gained).</p>';
   stage.appendChild(n);
