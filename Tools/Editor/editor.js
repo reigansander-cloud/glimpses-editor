@@ -17,7 +17,7 @@ const TABS = {
   Keywords: { title: 'name', sub: 'id', match: 'id', newValues: { name: 'New Keyword' }, label: 'Keywords' },
   Runes: { title: 'name', sub: 'id', match: 'name', newValues: { name: 'New Rune' }, label: 'Runes' },
   Masks: { title: 'name', sub: 'id', match: 'id', newValues: { name: 'New Mask' }, label: 'Masks' },
-  'Action Cards': { title: 'name', sub: 'id', match: 'id', newValues: { name: 'New Card', paper: 'plain', symbol: 'spiral', target: 'has_sight' }, label: 'Action Cards' },
+  'Action Cards': { title: 'name', sub: 'id', match: 'id', newValues: { name: 'New Card', paper: 'auto', symbol: 'auto', target: 'has_sight' }, label: 'Action Cards' },
 };
 /** The Action Cards tab's columns (it's made with these the first time a card is saved). */
 const CARD_HEADERS = ['status', 'id', 'name', 'symbol', 'paper', 'target', 'text', 'how it works', 'Mechanical Clarification'];
@@ -1588,16 +1588,66 @@ function findCard(name) {
 function actionCardEl(c, w) {
   const k = w / 300, h = 420 * k, m = 40 * k;
   const box = el('div', 'acard', { width: w + 'px', height: h + 'px' });
-  const paper = R.has(`paper_${c.paper}.png`) ? c.paper : 'plain';
+  const paper = R.has(`paper_${c.paper}.png`) ? c.paper : 'plain';   // (auto, or not drawn yet: the plain one)
   const layer = f => img(f, { position: 'absolute', left: -m + 'px', top: -m + 'px', width: w + 2 * m + 'px', height: h + 2 * m + 'px' });
   box.appendChild(layer(`paper_${paper}.png`));
   const sym = String(c.symbol || '').trim().toLowerCase().replace(/ /g, '_');
-  const sf = R.has(`ink_${sym}.png`) ? `ink_${sym}.png` : 'ink_spiral.png';
   const s = w * 0.6;
-  box.appendChild(img(sf, { position: 'absolute', left: (w - s) / 2 + 'px', top: h * 0.58 - s / 2 + 'px', width: s + 'px', height: s + 'px', objectFit: 'contain', opacity: 0.93 }));
+  if (R.has(`ink_${sym}.png`))
+    box.appendChild(img(`ink_${sym}.png`, { position: 'absolute', left: (w - s) / 2 + 'px', top: h * 0.58 - s / 2 + 'px', width: s + 'px', height: s + 'px', objectFit: 'contain', opacity: 0.93 }));
+  else if (w >= 60) { const q = el('div', 'acard-auto', { top: h * 0.58 - s / 2 + 'px', height: s + 'px', fontSize: s * 0.5 + 'px' }); q.textContent = '?'; q.title = 'Auto: picked when the card is built'; box.appendChild(q); }
   if (w >= 40) { const nm = el('div', 'acard-name', { top: h * 0.2 - 17 * k / 0.453 + 'px', fontSize: Math.max(7, 17 * w / 136) + 'px' }); nm.textContent = c.name; box.appendChild(nm); }
   if (R.has(`paper_${paper}_over.png`)) box.appendChild(layer(`paper_${paper}_over.png`));
   return box;
+}
+
+/** A dropdown that shows the pictures themselves (and "Auto": picked when the card is built). */
+function artDropdown(rec, used, key, label, hint, names, file, kind) {
+  const h = HR(rec, key) || key;
+  used.add(h);
+  const f = el('div', 'f art-dd' + (isChanged(rec, h) ? ' changed' : ''));
+  f.innerHTML = `<label>${esc(label)} <span class="hint">${esc(hint)}</span></label>`;
+  const cur = () => String((record(rec.ref) || rec).cur[h] ?? '').trim();
+  const btn = el('button', 'art-dd-btn ' + kind);
+  const panel = el('div', 'art-dd-panel ' + kind);
+  const face = n => {
+    const b = el('div', 'art-dd-face');
+    if (!n || n.toLowerCase() === 'auto') { b.classList.add('auto'); b.innerHTML = '<span>Auto</span>'; }
+    else if (R.has(file(n))) b.appendChild(img(file(n)));
+    else { b.classList.add('auto'); b.innerHTML = `<span>${esc(n)}?</span>`; }
+    return b;
+  };
+  const drawBtn = () => {
+    btn.innerHTML = '';
+    const n = cur();
+    btn.appendChild(face(n));
+    const t = el('div', 'art-dd-name');
+    t.textContent = !n || n.toLowerCase() === 'auto' ? 'Auto — picked for it when the card is built' : n.replace(/_/g, ' ').replace(/^./, x => x.toUpperCase());
+    btn.appendChild(t);
+    const c = el('span', 'art-dd-caret'); c.textContent = '▾'; btn.appendChild(c);
+  };
+  const pick = n => { setVal(rec.ref, h, n); drawBtn(); close(); f.classList.toggle('changed', isChanged(record(rec.ref) || rec, h)); renderPreview(); };
+  const drawPanel = () => {
+    panel.innerHTML = '';
+    for (const n of ['auto', ...names]) {
+      const o = el('button', 'art-dd-opt' + (cur().toLowerCase() === n ? ' on' : ''));
+      o.title = n === 'auto' ? 'Auto: picked for it when the card is built' : n.replace(/_/g, ' ');
+      o.appendChild(face(n));
+      o.onclick = e => { e.preventDefault(); pick(n); };
+      panel.appendChild(o);
+    }
+  };
+  const outside = e => { if (!f.contains(e.target)) close(); };
+  const close = () => { panel.classList.remove('open'); document.removeEventListener('mousedown', outside); };
+  btn.onclick = e => {
+    e.preventDefault();
+    if (panel.classList.contains('open')) { close(); return; }
+    drawPanel(); panel.classList.add('open'); document.addEventListener('mousedown', outside);
+    const on = panel.querySelector('.on'); if (on) on.scrollIntoView({ block: 'nearest' });
+  };
+  drawBtn();
+  f.append(btn, panel);
+  return f;
 }
 
 function actionCardForm(form, rec, used) {
@@ -1605,25 +1655,9 @@ function actionCardForm(form, rec, used) {
   top.appendChild(textField(rec, 'name', 'Name', { big: true, create: true }, used));
   top.appendChild(statusField(rec, used));
   const look = fieldset(form, 'Look');
-  const sh = HR(rec, 'symbol') || 'symbol';
-  used.add(sh);
-  const f = el('div', 'f');
-  f.innerHTML = '<label>Ink symbol <span class="hint">(drawn under the name)</span></label>';
-  const wrap = el('div', 'ink-pick');
-  const sel = el('select');
-  const prev = el('div', 'ink-prev');
-  const curSym = () => String((record(rec.ref) || rec).cur[sh] ?? '').trim();
-  const names = inkNames();
-  if (curSym() && !names.includes(curSym())) names.unshift(curSym());
-  for (const n of names) { const o = el('option'); o.value = n; o.textContent = n.replace(/_/g, ' '); sel.appendChild(o); }
-  const draw = () => { prev.innerHTML = ''; if (R.has(`ink_${curSym()}.png`)) prev.appendChild(img(`ink_${curSym()}.png`)); };
-  sel.value = curSym() || 'spiral';
-  sel.onchange = () => { setVal(rec.ref, sh, sel.value); draw(); };
-  draw();
-  wrap.append(sel, prev);
-  f.appendChild(wrap);
-  look.appendChild(f);
-  look.appendChild(selectField(rec, 'paper', 'Parchment', paperNames(), used, { hint: '(its border: wax, tears, frost...)' }));
+  const inkFile = n => `ink_${n}.png`, paperFile = n => `paper_${n}.png`;
+  look.appendChild(artDropdown(rec, used, 'symbol', 'Ink symbol', '(drawn under the name)', inkNames(), inkFile, 'ink'));
+  look.appendChild(artDropdown(rec, used, 'paper', 'Parchment', '(its border: wax, tears, frost...)', paperNames(), paperFile, 'paper'));
   const what = fieldset(form, 'What it does');
   what.appendChild(selectField(rec, 'target', 'Used on', [['has_sight', 'a memoriam with sight'], ['no_sight', 'a memoriam with no sight'], ['any', 'any memoriam'], ['none', 'no memoriam (it just happens)']], used));
   what.appendChild(textField(rec, 'text', 'Card text', { area: true, rows: 3, create: true, placeholder: 'Clear 1 sight from a memoriam...' }, used));
