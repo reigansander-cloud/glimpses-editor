@@ -71,6 +71,10 @@ const SLICES = {
   wideGold: { file: 'tile_wide_gold.png', xs: [0, 55, 190, 360, 495, 550], ys: [0, 64, 191, 255], scale: 0.25 },
 };
 function btnSlice(color) {
+  if (color === 'gold') {   // ??? glimpses: the home screen's gold glass
+    const [w, h] = AD.sizes['btn_gold_glass.png'] || [860, 200];
+    return { file: 'btn_gold_glass.png', xs: [0, 100, w - 100, w], ys: [0, 92, h - 92, h], scale: 0.34 * 1.4 };
+  }
   const f = `btn_${color}.png`, [w, h] = AD.sizes[f] || [469, 343];
   return { file: f, xs: [0, 175, w - 175, w], ys: [0, 112, h - 112, h], scale: 0.34 };
 }
@@ -343,7 +347,7 @@ const GLOW = { red: [255, 71, 56], gold: [255, 189, 71], brown: [217, 158, 115],
 function glimpseCard(g) {
   const color = GLOW[g.color] ? g.color : 'sand';
   const [r, gg, b] = GLOW[color];
-  const box = el('div', 'gglimpse');
+  const box = el('div', 'gglimpse' + (color === 'gold' ? ' glass' : ''));
   box._slice = btnSlice(color);
   box.appendChild(el('div', 'gglow', { background: `radial-gradient(closest-side, rgba(${r},${gg},${b},.42), rgba(${r},${gg},${b},.16) 50%, transparent)` }));
   const inner = el('div', 'gglimpseinner');

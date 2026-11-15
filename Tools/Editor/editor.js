@@ -8,9 +8,9 @@ const { el, esc, img } = R;
 const STORE = 'glimpsesEditor.v1';
 const STATUSES = ['Good', 'Update', 'Idea', 'Delete'];
 const STATUS_COLOR = { Good: '#c9ebc4', Update: '#ffe29a', Delete: '#f5b5ae', Idea: '#dcd3f5' };
-const GLIMPSE_COLORS = ['red', 'gold', 'brown', 'purple', 'green', 'sand', 'orange', 'blue'];
+const GLIMPSE_COLORS = ['orange', 'red', 'purple', 'green', 'blue', 'gold', 'brown', 'sand'];   // (in the order of their types)
 /** A glimpse's colour says what sort it is (shown above its title in the game). Keep in step with ChoiceGenerator.TypeOf. */
-const GLIMPSE_TYPES = { red: 'Danger', gold: 'Mortal Danger', brown: 'Oddity', purple: 'Respite', green: 'Connection', sand: '???', orange: 'Bargain', blue: 'Prophecy' };
+const GLIMPSE_TYPES = { orange: 'Danger', red: 'Mortal Danger', purple: 'Oddity', green: 'Respite', blue: 'Connection', gold: '???', brown: 'Bargain', sand: 'Prophecy' };
 
 const TABS = {
   Memories: { title: 'name', sub: null, match: 'name', newValues: { name: 'New Memoriam' }, label: 'Memoriams' },
@@ -272,8 +272,8 @@ function glimpseModel(rec) {
   const text = val(rec, 'text');
   let color = val(rec, 'colour').trim().toLowerCase();
   if (!GLIMPSE_COLORS.includes(color))
-    color = kind === 'encounter' ? 'red' : kind === 'memory' ? 'purple' : picks ? 'orange' : /check/i.test(val(rec, 'effects')) ? 'blue'
-      : /heal/i.test(text) ? 'green' : val(rec, 'cost').trim() ? 'gold' : 'sand';
+    color = kind === 'encounter' ? 'orange' : kind === 'memory' || picks ? 'purple'   // (as the game picks: ChoiceGenerator.ColorFor)
+      : /heal/i.test(text) ? 'green' : val(rec, 'cost').trim() ? 'brown' : 'gold';
   const label = kind === 'encounter' ? 'FIGHT' : kind === 'memory' ? 'NEW MEMORIAM' : picks ? 'TAMPER' : 'EVENT';
   const hint = kind === 'memory' ? 'Hover to see it, right-click to look closely. Drag it into a gap in the ring, or click then pick a gap.'
     : picks ? 'Drag it onto a memoriam, or click then pick one.' : 'Click to choose.';
@@ -608,7 +608,7 @@ function thumb(rec) {
   } else if (rec.tab === 'Glimpses') {
     const m = glimpseModel(rec);
     t.classList.add('sw');
-    t.style.background = `url("${R.artUrl('btn_' + m.color + '.png')}") center/cover`;
+    t.style.background = `url("${R.artUrl(m.color === 'gold' ? 'btn_gold_glass.png' : 'btn_' + m.color + '.png')}") center/cover`;
   } else if (rec.tab === 'Masks') {
     const f = `mask_${val(rec, 'mask').trim()}.png`;
     t.style.background = 'none';
@@ -1259,7 +1259,7 @@ function glimpseForm(form, rec, used) {
       sw.appendChild(auto);
       for (const c of GLIMPSE_COLORS) {
         const b = el('button', 'swatch' + (cur === c ? ' on' : ''));
-        b.style.backgroundImage = `url("${R.artUrl('btn_' + c + '.png')}")`;
+        b.style.backgroundImage = `url("${R.artUrl(c === 'gold' ? 'btn_gold_glass.png' : 'btn_' + c + '.png')}")`;
         b.textContent = GLIMPSE_TYPES[c];
         b.title = c;
         b.onclick = () => { setVal(rec.ref, h, c); draw(); };
