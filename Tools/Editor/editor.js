@@ -1037,8 +1037,8 @@ function tileEditor(rec, h, label, onRemove) {
   kwSel.value = p.kind === 'kw' ? 'kw:' + p.kw.id : p.kind;
   const n = el('input'); n.type = 'number'; n.min = 0; n.value = p.n || ''; n.title = 'how many';
   const stat = el('select');
-  for (const s of ['Vanity', 'Fortitude', 'Aggression']) { const o = el('option'); o.value = s; o.textContent = s; stat.appendChild(o); }
-  stat.value = /^ag/i.test(p.stat) ? 'Aggression' : /^(fad|fort)/i.test(p.stat) ? 'Fortitude' : 'Vanity';
+  for (const s of ['Vanity', 'Aggression']) { const o = el('option'); o.value = s; o.textContent = s; stat.appendChild(o); }
+  stat.value = /^ag/i.test(p.stat) ? 'Aggression' : 'Vanity';   // (Bars count vanity or aggression; the old Fortitude Bars became Vanity Bars)
   const icon = el('div', 'pickicon');
   top.append(icon, kwSel, stat, n);
   if (onRemove) { const x = el('button', 'xbtn'); x.textContent = '×'; x.title = 'Remove this ability'; x.onclick = onRemove; top.appendChild(x); }
