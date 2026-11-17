@@ -342,3 +342,7 @@ dialog .req-sec h4 { margin: 0 0 4px; font: 700 13px Cinzel, var(--serif); lette
 dialog .req-sec.unlock h4 { color: #e8a0bf; }
 dialog .req-sec p.dim { margin: 0 0 10px; }
 dialog#reqDialog { width: min(760px, 94vw); }
+/* an enemy's own memoriams: name, then what it does */
+.mems-ed .mem-row { display: grid; grid-template-columns: minmax(140px, 1fr) 2fr auto; gap: 6px; align-items: start; margin-bottom: 6px; }
+.mems-ed .mem-row textarea { min-height: 36px; }
+@media (max-width: 640px) { .mems-ed .mem-row { grid-template-columns: 1fr auto; } .mems-ed .mem-row textarea { grid-column: 1 / -1; } }

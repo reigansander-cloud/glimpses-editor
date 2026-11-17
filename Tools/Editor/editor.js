@@ -1387,6 +1387,14 @@ function readEnemies(rec) {
   if (!enemies.length) enemies.push({ name: '', count: 1, intents: [], about: '', bars: [] });
   partsFor(val(rec, 'intents'), enemies).forEach((t, i) => { enemies[i].intents = t.split(/\s*(?:→|->)\s*/).map(x => x.trim()).filter(Boolean); });
   partsFor(val(rec, 'what they do'), enemies, true).forEach((t, i) => { enemies[i].about = t; });
+  // its own memoriams in your ring: names ("3 × Candle, Canny Mist") and, in step, what each does ("... | ...")
+  const memNames = partsFor(memCell(rec, 'names'), enemies), memFx = partsFor(memCell(rec, 'effects'), enemies, true);
+  enemies.forEach((e, i) => {
+    const names = memNames[i].split(/\s*,\s*/).map(x => x.trim()).filter(Boolean);
+    const fx = memFx[i] ? memFx[i].split(/\s*\|\s*/) : [];
+    e.mems = names.map((n, k) => ({ name: n, effects: (fx[k] || '').trim() }));
+    for (let k = names.length; k < fx.length; k++) if (fx[k].trim()) e.mems.push({ name: '', effects: fx[k].trim() });
+  });
   for (const bt of BAR_TYPES) {
     const needs = partsFor(val(rec, bt.need), enemies), rewards = partsFor(val(rec, bt.reward), enemies);
     enemies.forEach((e, i) => {
@@ -1399,14 +1407,26 @@ function readEnemies(rec) {
   }
   return enemies;
 }
+/** An encounter's enemy-memoriam columns: their names, and what each does. */
+const MEM_COLS = { names: 'enemy memoriam', effects: 'enemy memoriam effects' };
+function memCell(rec, which) { const h = HR(rec, MEM_COLS[which]) || (which === 'names' ? HR(rec, 'enemy memory') : null); return h ? String((record(rec.ref) || rec).cur[h] ?? '') : ''; }
 /** Writes enemies back into the encounter's columns. */
 function writeEnemies(ref, enemies) {
-  const list = enemies.filter(e => e.name.trim() || e.intents.length || e.about.trim() || e.bars.length);
+  const list = enemies.filter(e => e.name.trim() || e.intents.length || e.about.trim() || e.bars.length || (e.mems || []).some(m => m.name.trim() || m.effects.trim()));
   const named = list.map(e => ({ ...e, name: e.name.trim() || 'Unnamed enemy', count: Math.max(1, Number(e.count) || 1) }));
   const set = (key, v) => { const rec = record(real(ref)); if (val(rec, key) !== v) setVal(ref, HR(rec, key) || key, v); };
   set('enemies', named.map(e => e.count > 1 ? `${e.count} × ${e.name}` : e.name).join(', '));
   set('intents', joinParts(named.map(e => e.intents.filter(x => x.trim()).join(' → ')), named));
   set('what they do', joinParts(named.map(e => e.about.trim()), named, true));
+  {
+    const rec = record(real(ref));
+    const mems = named.map(e => (e.mems || []).filter(m => m.name.trim() || m.effects.trim()));
+    const names = joinParts(mems.map(ms => ms.map(m => m.name.trim() || 'Unnamed memoriam').join(', ')), named);
+    const fx = joinParts(mems.map(ms => ms.some(m => m.effects.trim()) ? ms.map(m => m.effects.trim().replace(/\|/g, '/')).join(' | ') : ''), named, true);
+    const hn = HR(rec, MEM_COLS.names) || HR(rec, 'enemy memory') || MEM_COLS.names, hf = HR(rec, MEM_COLS.effects) || MEM_COLS.effects;
+    if (memCell(rec, 'names') !== names) setVal(ref, hn, names);
+    if (memCell(rec, 'effects') !== fx) setVal(ref, hf, fx);
+  }
   for (const bt of BAR_TYPES) {
     const bar = e => e.bars.find(b => b.type === bt.type);
     set(bt.need, joinParts(named.map(e => bar(e) && bar(e).need !== '' ? `${bar(e).need}${bt.word ? ' ' + bt.word : ''}` : ''), named));
@@ -1432,7 +1452,7 @@ function encounterForm(form, rec, used) {
   const ri = roundsF.querySelector('input'); if (ri) ri.addEventListener('input', showClock);
   top.appendChild(statusField(rec, used));
 
-  for (const k of ['enemies', 'intents', 'what they do', ...BAR_TYPES.flatMap(b => [b.need, b.reward])]) { const h = HR(rec, k); if (h) used.add(h); }
+  for (const k of ['enemies', 'intents', 'what they do', MEM_COLS.names, MEM_COLS.effects, 'enemy memory', ...BAR_TYPES.flatMap(b => [b.need, b.reward])]) { const h = HR(rec, k); if (h) used.add(h); }
   const enemies = readEnemies(rec);
   const write = () => writeEnemies(rec.ref, enemies);
   dialogueSection(form, rec, used);
@@ -1481,6 +1501,28 @@ function encounterForm(form, rec, used) {
       addI.onclick = () => { if (!e.intents.length) e.intents.push(''); e.intents.push(''); draw(); const ins = box.querySelectorAll('fieldset.enemy')[ei].querySelectorAll('.intent-row input'); if (ins.length) ins[ins.length - 1].focus(); };
       it.append(itBox, addI);
       fs.appendChild(it);
+
+      // its memoriams: ones of its own it puts in your ring (name, and what each does)
+      const mm = el('div', 'f');
+      mm.innerHTML = '<label>Memoriams <span class="hint">(its own, put in your ring: “3 × Candle” · what it does)</span></label>';
+      const mmBox = el('div', 'mems-ed');
+      if (!e.mems) e.mems = [];
+      const shownMems = e.mems.length ? e.mems : [{ name: '', effects: '' }];   // starts with one (an empty one isn't saved)
+      shownMems.forEach((m, mi) => {
+        const row = el('div', 'mem-row');
+        const nm = el('input'); nm.type = 'text'; nm.value = m.name; nm.placeholder = 'Name (e.g. 3 × Candle)';
+        const fx = el('textarea'); fx.rows = 2; fx.value = m.effects; fx.placeholder = 'What it does (e.g. Sight moved or spawned here becomes Ignorance.)';
+        const keep = () => { if (!e.mems.length) e.mems.push(shownMems[0]); };
+        nm.oninput = () => { keep(); m.name = nm.value; write(); };
+        fx.oninput = () => { keep(); m.effects = fx.value; write(); };
+        row.append(nm, fx);
+        if (shownMems.length > 1) { const x = el('button', 'xbtn'); x.textContent = '×'; x.title = 'Remove this memoriam'; x.onclick = () => { e.mems.splice(mi, 1); write(); draw(); }; row.appendChild(x); }
+        mmBox.appendChild(row);
+      });
+      const addM = el('button', 'btn small addbtn'); addM.textContent = '+ Add memoriam';
+      addM.onclick = () => { if (!e.mems.length) e.mems.push(shownMems[0]); e.mems.push({ name: '', effects: '' }); draw(); const ins = box.querySelectorAll('fieldset.enemy')[ei].querySelectorAll('.mem-row input'); if (ins.length) ins[ins.length - 1].focus(); };
+      mm.append(mmBox, addM);
+      fs.appendChild(mm);
 
       // what it does
       const ab = el('div', 'f');
@@ -1533,7 +1575,7 @@ function encounterForm(form, rec, used) {
       box.appendChild(fs);
     });
     const addE = el('button', 'btn addbtn add-enemy'); addE.textContent = '+ Add enemy';
-    addE.onclick = () => { enemies.push({ name: '', count: 1, intents: [], about: '', bars: [{ type: 'aggression', need: '', reward: '', reset: false }] }); draw(); const ins = box.querySelectorAll('fieldset.enemy'); ins[ins.length - 1].querySelector('input').focus(); };
+    addE.onclick = () => { enemies.push({ name: '', count: 1, intents: [], about: '', mems: [], bars: [{ type: 'aggression', need: '', reward: '', reset: false }] }); draw(); const ins = box.querySelectorAll('fieldset.enemy'); ins[ins.length - 1].querySelector('input').focus(); };
     box.appendChild(addE);
   };
   draw();
@@ -1543,7 +1585,6 @@ function encounterForm(form, rec, used) {
   other.appendChild(checkField(rec, 'boss', 'Boss', used));
   const r2 = el('div', 'row');
   r2.appendChild(textField(rec, 'music', 'Music', {}, used));
-  r2.appendChild(textField(rec, 'enemy memory', 'Enemy memoriam', {}, used));
   other.appendChild(r2);
   other.appendChild(textField(rec, 'traits', 'Traits & rules (the game\'s text)', { area: true, rows: 2 }, used));
   other.appendChild(textField(rec, 'notes', 'Notes / flavour', { area: true }, used));
