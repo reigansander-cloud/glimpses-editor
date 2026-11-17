@@ -776,6 +776,14 @@ function renderForm() {
   const builders = { Memories: memoryForm, Glimpses: glimpseForm, Encounters: encounterForm, Keywords: keywordForm, Runes: runeForm, Masks: maskForm, 'Action Cards': actionCardForm };
   const used = new Set();
   builders[rec.tab](form, rec, used);
+  // every item can say what it really does, or a mechanic the game doesn't explain: never shown in the game
+  // (memoriams have theirs in their own section)
+  if (rec.tab !== 'Memories') {
+    const mc = textField(rec, 'mechanical clarification', 'Mechanical clarification',
+      { create: true, area: true, rows: 2, hint: '(never shown in the game: what it really does, or a mechanic the game doesn\'t explain)' }, used);
+    const oi = otherInfo(form);
+    oi.insertBefore(mc, oi.querySelector(':scope > .f, :scope > .row') || null);
+  }
   const rqh = HR(rec, 'requirements'); if (rqh) used.add(rqh);   // (the Requirements button)
   const ulh = HR(rec, 'unlock'); if (ulh) used.add(ulh);         // (the Unlock button)
   // any other columns on the tab
@@ -1586,7 +1594,7 @@ function encounterForm(form, rec, used) {
   const r2 = el('div', 'row');
   r2.appendChild(textField(rec, 'music', 'Music', {}, used));
   other.appendChild(r2);
-  other.appendChild(textField(rec, 'traits', 'Traits & rules (the game\'s text)', { area: true, rows: 2 }, used));
+  { const th = HR(rec, 'traits'); if (th) used.add(th); }   // (traits & rules: gone; see Mechanical clarification)
   other.appendChild(textField(rec, 'notes', 'Notes / flavour', { area: true }, used));
   other.appendChild(textField(rec, 'artwork', 'Artwork notes', {}, used));
 }
