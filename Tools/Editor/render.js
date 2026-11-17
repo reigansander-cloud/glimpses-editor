@@ -60,6 +60,8 @@ function iconText(text, size) {
     const f = w === 'sight' ? 'sight.png' : iconFile(w);
     return `<img class="ico" src="${artUrl(f)}" style="width:${size}px;height:${size}px" alt="${m}" title="${m}">`;
   });
+  // Ignorance: its red stone (hover for what it does)
+  t = t.replace(/\bignorances?\b/gi, m => `<img class="ico" src="${artUrl('ignorance.png')}" style="width:${size}px;height:${size}px" alt="${m}" title="Ignorance: enemy sight. More Ignorance than Sight on a memoriam turns it face down. Can't be claimed or cleared; reconciling it costs 1 fortitude per Ignorance; it scatters with sight (you pick the order); it fades after the encounter.">`);
   t = t.replace(KEYWORD_WORDS, m => `<img class="ico" src="${artUrl(KEYWORD_ART[m])}" style="width:${size}px;height:${size}px" alt="${m}" title="${m}">`);
   return t.replace(/\n/g, '<br>');
 }
