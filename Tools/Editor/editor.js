@@ -947,7 +947,9 @@ function memoryForm(form, rec, used) {
   const runeBox = el('div');
   runesCol.appendChild(runeBox);
   numbered(rec, 'rune').forEach(h => used.add(h));
-  const runeLabels = (S.data.lists && S.data.lists.runes && S.data.lists.runes.length ? S.data.lists.runes : runeRows().map(r => r.name));
+  // (one Fragile: the Lists tab's old "Fragile: aggression/fortitude/vanity" are all just Fragile now)
+  const runeLabels = [...new Set((S.data.lists && S.data.lists.runes && S.data.lists.runes.length ? S.data.lists.runes : runeRows().map(r => r.name))
+    .map(x => /fragile/i.test(x) ? '🪶 Fragile' : x))];
   const drawRunes = (focusLast) => {
     const cur = record(rec.ref) || rec;
     const list = runeList(cur);
