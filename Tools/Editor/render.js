@@ -29,7 +29,7 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '
 /** Art.Glyph: the sheet's symbol names → a picture file. */
 function glyphFile(name) {
   let n = String(name || '').trim().toLowerCase();
-  n = ({ 'back arrow': 'back', back: 'back', 'down arrow': 'down', down: 'down', compas: 'compass', void: 'vortex' })[n] || n.replace(/ /g, '_');
+  n = ({ 'back arrow': 'back', back: 'back', 'down arrow': 'down', down: 'down', compas: 'align', void: 'vortex' })[n] || n.replace(/ /g, '_');
   if (n === 'leaf') return 'ico_growth.png';
   if (n === 'align' || n === 'allign') return 'align_kw.png';
   return has(`glyph_${n}.png`) ? `glyph_${n}.png` : 'ico_doom.png';
@@ -46,7 +46,7 @@ const iconFile = name => (['bone', 'bones', 'ember', 'embers'].includes(name) ? 
 const STAT_WORDS = /\b(aggression|agression|fading|fortitude|vanity|stones?|embers?|threads?|bones?|charm|grit|insight|guile|sights?)\b/gi;
 const KEYWORD_WORDS = /\b(Lands|Allign|Fragile|Frantic|Barrier|Anchored|Echo|Growth|Wanderers?)\b/g;
 const KEYWORD_ART = {
-  Lands: 'glyph_target.png', Allign: 'glyph_compass.png', Fragile: 'glyph_feather.png', Frantic: 'glyph_fastforward.png',
+  Lands: 'glyph_target.png', Allign: 'align_kw.png', Fragile: 'glyph_feather.png', Frantic: 'glyph_fastforward.png',
   Barrier: 'glyph_shield.png', Anchored: 'glyph_anvil.png', Echo: 'glyph_cycle.png', Growth: 'ico_growth.png',
   Wanderer: 'glyph_lantern.png', Wanderers: 'glyph_lantern.png',
 };

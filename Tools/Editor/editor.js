@@ -1937,7 +1937,7 @@ function symbolPicker(rec, used, extra) {
   const draw = () => {
     grid.innerHTML = '';
     const cur = String((record(rec.ref) || rec).cur[h] ?? '').trim().toLowerCase();
-    const curNorm = ({ 'back arrow': 'back', 'down arrow': 'down', compas: 'compass', void: 'vortex' })[cur] || cur;
+    const curNorm = ({ 'back arrow': 'back', 'down arrow': 'down', compas: 'align', allign: 'align', void: 'vortex' })[cur] || cur;
     const none = el('button', 'glyph none' + (!cur ? ' on' : ''));
     none.textContent = 'none';
     none.onclick = () => { setVal(rec.ref, h, ''); draw(); };
